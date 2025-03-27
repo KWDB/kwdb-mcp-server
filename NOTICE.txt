@@ -1,0 +1,38 @@
+1. Open source software notice for KWDB MCP SERVER
+This software (KWDB MCP SERVER) is licensed under Mulan PSL v2.
+You can use this software according to the terms and conditions of the Mulan PSL v2.
+You may obtain a copy of Mulan PSL v2 at:
+         http://license.coscl.org.cn/MulanPSL2
+THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+See the Mulan PSL v2 for more details.
+
+All the source code files including those for testing or automation purposes, unless
+otherwise explicitly claimed, are licensed under Mulan PSL v2.  The license terms and 
+conditions can be referenced by the link above.
+
+2. Third-party components in source code
+This open source project incorporates source code files from 
+the following third-party projects or components. The open source software 
+licenses are granted by the respective right holders.
+
+2.1 github.com/google/uuid (v1.6.0)
+License: BSD 3-Clause
+Source: https://github.com/google/uuid
+
+2.2 github.com/lib/pq (v1.10.9)
+License: MIT
+Source: https://github.com/lib/pq
+
+2.3 github.com/mark3labs/mcp-go (v0.16.0)
+License: MIT
+Source: https://github.com/mark3labs/mcp-go
+
+2.4 github.com/yosida95/uritemplate/v3 (v3.0.2)
+License: BSD 3-Clause
+Source: https://github.com/yosida95/uritemplate
+
+Each of these components is subject to its respective license terms. 
+We acknowledge and are grateful to these developers for their contributions 
+to open source. 
