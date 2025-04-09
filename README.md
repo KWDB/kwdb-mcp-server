@@ -358,7 +358,7 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ## License
 
-This project is licensed under the Mulan PSL v2 License
+This project is licensed under the MIT License
 
 ## Acknowledgements
 
