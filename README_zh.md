@@ -1,253 +1,203 @@
-# KWDB MCP 服务器
-
-一个用于与 KWDB（KaiwuDB）数据库交互的 MCP 服务器。
+# KWDB MCP Server
 
 ## 概述
 
-KWDB MCP 服务器通过 MCP 协议提供一套工具和资源，用于与 KWDB（KaiwuDB）数据库交互。它支持读取和写入操作，允许您查询数据、修改数据以及执行 DDL 操作。
+KWDB MCP Server 是一个基于 [MCP](https://modelcontextprotocol.io/introduction)（Model Context Protocol，模型上下文协议）协议的服务器实现，它通过 MCP 协议提供一套工具和资源，用于与 KWDB 数据库交互和提供商业智能功能。KWDB MCP Server 支持读取、写入、查询、修改数据以及执行 DDL 操作。
 
-## 功能特性
+### 架构设计
 
-- **读取操作**：执行 SELECT、SHOW、EXPLAIN 和其他只读查询
-- **写入操作**：执行 INSERT、UPDATE、DELETE 和 DDL 操作，如 CREATE、DROP、ALTER
-- **数据库信息**：获取数据库信息，包括表及其架构
-- **语法指南**：通过提示访问 KWDB（KaiwuDB）的综合语法指南
-- **标准化 API 响应**：所有操作的一致 JSON 响应格式
-- **自动 LIMIT**：通过自动为没有 LIMIT 子句的 SELECT 查询添加 LIMIT 20 来防止大型结果集
+KWDB MCP Server 的核心流程包括以下几个部分：
 
-## 安装
+- 协议解析：处理 MCP 标准输入或 HTTP SSE 请求。
+- 工具路由：根据工具类型（read/write）分发处理请求。
+- 查询预处理：自动添加 `LIMIT` 语法检查。
+- 结果封装：采用统一 JSON 响应格式。
 
-### 前提条件
-
-- Go 1.23 或更高版本
-- 访问 KWDB（KaiwuDB）数据库
-- 安装支持 MCP 的 VSCode AI 扩展（如 Cline）
-
-### 安装步骤
-
-1. 克隆仓库：
-   ```bash
-   git clone https://gitee.com/kwdb/mcp-kwdb-server-go.git
-   cd mcp-kwdb-server-go
-   ```
-
-2. 安装依赖：
-   ```bash
-   make deps
-   ```
-
-3. 构建应用：
-   ```bash
-   make build
-   ```
-
-## 使用方法
-
-使用 PostgreSQL 连接字符串运行服务器：
-
-```bash
-./bin/kwdb-mcp-server "postgresql://username:password@hostname:port/database?sslmode=disable"
+```mermaid
+flowchart TD
+    A[MCP 协议层] --> B[工具调度器]
+    A --> C[资源管理器]
+    B --> D{查询类型判断}
+    D -->|读操作| E[查询执行引擎]
+    D -->|写操作| F[事务处理引擎]
+    E --> G[结果格式化]
+    F --> G
+    G --> H[响应生成]
+    C --> I[数据库元数据]
+    C --> J[表结构信息]
+    H --> A
+    I --> E
+    J --> E
 ```
 
-或使用 Makefile：
+### 功能特性
 
-```bash
-CONNECTION_STRING="postgresql://username:password@hostname:port/database?sslmode=disable" make run
+- **读取操作**：支持 `SELECT`、`SHOW`、`EXPLAIN` 和其他只读查询。
+- **写入操作**：支持 `INSERT`、`UPDATE`、`DELETE` DML 操作和 `CREATE`、`DROP`、`ALTER` DDL 操作。
+- **数据库信息**：获取数据库信息，包括数据库中所有的表及其架构。
+- **语法指南**：根据提示，访问 KWDB 支持的综合 SQL 语法指南。
+- **标准化 API 响应**：所有 API 响应遵循一致的 JSON 结构。
+    ```json
+    {
+      "status": "success",  // 或 "error"
+      "type": "query_result",  // 响应类型
+      "data": { ... },  // 响应数据
+      "error": null  // 错误信息，成功时为 null
+    }
+    ```
+- **自动 LIMIT**：自动为没有 `LIMIT` 子句的 `SELECT` 查询语句添加 `LIMIT 20` 子句， 防止生成大型结果集。
+
+### 安全性
+
+KWDB MCP Server 实现以下安全性能。
+
+- 提供单独的读取和写入操作工具。
+- 验证查询结果，确保与预期的操作类型匹配。
+- 输出未授权操作的错误消息。
+
+```mermaid
+flowchart TD
+    A[输入 SQL] --> B{语法解析}
+    B -->|SELECT| C[允许执行]
+    B -->|SHOW| C
+    B -->|EXPLAIN| C
+    B -->|INSERT/UPDATE/DELETE| D[写操作验证]
+    D --> E[事务日志记录]
+    B -->|其他| F[拒绝执行]
 ```
 
-### 传输模式
+### MCP Resources
 
-服务器支持两种传输模式：
+MCP Resources 指 KWDB MCP Server 暴露的数据和内容，供 MCP 客户端读取并作为 LLM 上下文。下表列出 KWDB MCP Server 支持的 Resources。
 
-#### 标准 I/O 模式（默认）
+| Resources      | URI 格式                         | 说明                                    | 示例                        |
+|----------------|----------------------------------|---------------------------------------|-----------------------------|
+| 数据库产品信息 | `kwdb://product_info`            | 数据库产品信息，包括版本和功能。          | `kwdb://product_info/`      |
+| 数据库元信息   | `kwdb://db_info/{database_name}` | 目标数据库的信息，包括引擎类型、注释和表。 | `kwdb://db_info/db_shig`    |
+| 表结构信息     | `kwdb://table/{table_name}`      | 目标表的架构，包括列和示例查询。          | `kwdb://table/user_profile` |
 
-这是默认模式，使用标准输入/输出进行通信：
+### MCP Tools
 
-```bash
-./bin/kwdb-mcp-server "postgresql://username:password@hostname:port/database?sslmode=disable"
-```
+MCP Tools 指 KWDB MCP Server 暴露的可执行功能，供 LLM 调用以与外部系统交互。KWDB MCP Server 提供以下 Tools。
 
-#### SSE 模式（HTTP 上的服务器发送事件）
+#### 读查询（read-query）
 
-对于远程访问，您可以在 SSE 模式下运行服务器。请注意，您仍需要提供数据库连接字符串作为最后一个参数：
-
-```bash
-./bin/kwdb-mcp-server -t sse -addr ":8080" -base-url "http://localhost:8080" "postgresql://username:password@hostname:port/database?sslmode=disable"
-```
-
-或使用 Makefile：
-
-```bash
-CONNECTION_STRING="postgresql://username:password@hostname:port/database?sslmode=disable" ADDR=":8080" BASE_URL="http://localhost:8080" make run-sse
-```
-
-选项：
-- `-t` 或 `-transport`：传输类型（`stdio` 或 `sse`）
-- `-addr`：SSE 模式的监听地址（默认：`:8080`）
-- `-base-url`：SSE 模式的基础 URL（默认：`http://localhost:8080`）
-
-## 与 LLM Agent 集成
-
-KWDB 服务器设计为可与任何支持 MCP 协议的 LLM Agent 配合使用。以下是使用 Cline 的示例，但类似步骤也适用于其他兼容 MCP 的 Agent。
-
-### 示例：与 Cline 集成
-
-1. 确保您在 VSCode 中安装了 Cline
-
-2. 将 MCP 服务器配置添加到您的 VSCode 设置中。打开 VSCode Cline > MCP Servers > Installed > Configure MCP Servers 并添加：
-
-#### 标准 I/O 模式
-
-```json
-"mcpServers": {
-  "kwdb-server": {
-    "command": "/path/to/bin/kwdb-mcp-server",
-    "args": [
-      "postgresql://username:password@host:port/database"
-    ],
-    "disabled": false,
-    "autoApprove": []
-  }
-}
-```
-
-#### SSE 模式
-
-首先，在 SSE 模式下启动服务器：
-
-```bash
-./bin/kwdb-mcp-server -t sse -addr ":8080" -base-url "http://localhost:8080" "postgresql://username:password@hostname:port/database?sslmode=disable"
-```
-
-然后，配置 Cline 连接到运行中的服务器：
-
-```json
-"mcpServers": {
-  "kwdb-server-sse": {
-    "url": "http://localhost:8080",
-    "disabled": false,
-    "autoApprove": []
-  }
-}
-```
-
-3. 从 VSCode Cline > MCP Servers > Installed > kwdb-server > Restart Server 重启服务器
-
-### 与其他兼容 MCP 的 Agent 集成
-
-对于其他支持 MCP 协议的 LLM Agent，请参考它们的具体文档了解如何配置 MCP 服务器。关键要求是：
-
-- 标准 I/O 模式：能够使用命令行参数执行 KWDB 服务器二进制文件
-- SSE 模式：能够连接到实现 MCP 协议的 HTTP 端点
-
-## Tools
-
-服务器提供以下Tools：
-
-### read-query
-
-执行 SELECT、SHOW、EXPLAIN 和其他只读查询。没有 LIMIT 子句的 SELECT 查询将自动添加 LIMIT 20 以防止大型结果集。
+KWDB MCP Server 支持执行 `SELECT`、`SHOW`、`EXPLAIN` 和其他只读查询，从数据库中读取数据。用户只需要提供一个 SQL 查询语句作为输入，`read_query` 函数就会返回查询结果，结果以对象数组的形式呈现。此外，KWDB MCP Server 也支持为没有 `LIMIT` 子句的 `SELECT` 查询自动添加 `LIMIT 20`，避免生成大型结果集。
 
 示例：
+
 ```sql
+-- 查看表数据。
 SELECT * FROM users LIMIT 10;
+-- 查看数据库中已创建的表。
 SHOW TABLES;
+-- 执行 SQL 查询，生成包含查询详细信息的文件。
 EXPLAIN ANALYZE SELECT * FROM orders WHERE user_id = 1;
 ```
 
-### write-query
+#### 写查询（write-query）
 
-执行数据修改查询，包括 DML 和 DDL 操作。
+KWDB MCP Server 支持执行数据修改查询，包括 DML 和 DDL 操作。
 
 示例：
+
 ```sql
+-- 插入数据。
 INSERT INTO users (name, email) VALUES ('John Doe', 'john@example.com');
+-- 更新数据。
 UPDATE users SET email = 'new-email@example.com' WHERE id = 1;
+-- 删除数据。
 DELETE FROM users WHERE id = 1;
+-- 创建表。
 CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT, price DECIMAL);
+-- 修改表。
 ALTER TABLE products ADD COLUMN description TEXT;
+-- 删除表
 DROP TABLE products;
 ```
 
-## Prompts
+### MCP Prompts
 
-服务器提供以下Prompts：
-| Prompt Name | Description |
-|------------|-------------|
-| db_description | KWDB（KaiwuDB）数据库的综合描述，包括其功能、特性和用例。 |
-| syntax_guide | KWDB（KaiwuDB）的综合语法指南，包括常见查询示例和最佳实践。 |
-| cluster_management | KWDB 集群管理的综合指南，包括节点管理、负载均衡和监控。 |
-| data_migration | 数据迁移到 KWDB 和从 KWDB 迁移的指南，包括导入/导出方法和最佳实践。 |
-| installation | 在各种环境中安装和部署 KWDB 的分步指南。 |
-| performance_tuning | 优化 KWDB 性能的指南，包括查询优化、索引策略和系统级调优。 |
-| troubleshooting | 诊断和解决常见 KWDB 问题和错误的指南。 |
-| backup_restore | 备份和恢复 KWDB 数据库的综合指南，包括策略、工具和最佳实践。 |
-| dba_template | 提示词编写模板。 |
+MCP Prompts 指 KWDB MCP Server 定义的可复用提示模板，引导 LLM 交互。下表列出 KWDB MCP Server 支持的 Prompts。
 
+| 类别       | Prompts              | 描述                                                              |
+|----------|----------------------|-----------------------------------------------------------------|
+| 数据库描述 | `db_description`     | KWDB 数据库的综合描述，包括其功能、特性和用例。                      |
+| 语法指南   | `syntax_guide`       | KWDB 的综合语法指南，包括常见查询示例和最佳实践。                   |
+| 集群管理   | `cluster_management` | KWDB 集群管理的综合指南，包括节点管理、负载均衡和监控。              |
+| 数据迁移   | `data_migration`     | 数据迁移到 KWDB 和从 KWDB 迁移的指南，包括导入/导出方法和最佳实践。 |
+| 安装部署   | `installation`       | 在各种环境中安装和部署 KWDB 的分步指南。                           |
+| 性能调优   | `performance_tuning` | 优化 KWDB 性能的指南，包括查询优化、索引策略和系统级调优。           |
+| 故障排查   | `troubleshooting`    | 诊断和解决常见 KWDB 问题和错误的指南。                             |
+| 备份与恢复 | `backup_restore`     | 备份和恢复 KWDB 数据库的综合指南，包括策略、工具和最佳实践。         |
+| DBA 模板   | `dba_template`       | 提示词编写模板。                                                   |
 
-## Resources
+#### 新增 MCP Prompts
 
-服务器提供以下Resources：
+MCP Prompts 以 Markdown 文件的形式存储在 `pkg/prompts/docs/` 目录。编译 KWDB MCP Server 时，可以使用 Go 的 `embed` 包将这些 Markdown 文件嵌入到二进制文件中。目前，KWDB MCP Server 提供以下 MCP Prompts 文件：
 
-- `kwdb://product_info`: 产品信息，包括版本和功能
-- `kwdb://db_info/{database_name}`：特定数据库的信息，包括引擎类型、注释和表
-- `kwdb://table/{table_name}`：特定表的架构，包括列和示例查询
+- `pkg/prompts/docs/ReadExamples.md`：包含读取查询示例（`SELECT` 语句）。
+- `pkg/prompts/docs/WriteExamples.md`：包含写入查询示例（`INSERT`、`UPDATE`、`DELETE`、`CREATE`、`ALTER`）。
+- `pkg/prompts/docs/DBDescription.md`：包含数据库描述。
+- `pkg/prompts/docs/SyntaxGuide.md`：包含 SQL 语法指南。
+- `pkg/prompts/docs/ClusterManagementGuide.md`：包含集群管理指南。
+- `pkg/prompts/docs/DataMigrationGuide.md`：包含数据迁移指南。
+- `pkg/prompts/docs/InstallationGuide.md`：包含安装指南。
+- `pkg/prompts/docs/PerformanceTuningGuide.md`：包含性能调优指南。
+- `pkg/prompts/docs/TroubleShootingGuide.md`：包含故障排除指南。
+- `pkg/prompts/docs/BackupRestoreGuide.md`：包含备份和恢复指南。
+- `pkg/prompts/docs/DBATemplate.md`：包含数据库管理模板。
 
-## API 响应格式
+如需新增 MCP Prompts，遵循以下步骤：
 
-所有 API 响应遵循一致的 JSON 结构：
+1. 在 `pkg/prompts/docs/` 目录中创建一个新的 Markdown 文件，例如 `NewUseCase.md`。
+2. 在 [`pkg/prompts/prompts.go`](./pkg/prompts/prompts.go) 文件中，添加变量和加载代码。
+3. 为新 Prompts 创建注册函数。
+4. 在 [`pkg/prompts/prompts.go`](./pkg/prompts/prompts.go) 文件中，将注册函数调用添加到 `registerUseCasePrompts()`。
+5. 更新 `README` 文档。
 
-```json
-{
-  "status": "success",  // 或 "error"
-  "type": "query_result",  // 响应类型
-  "data": { ... },  // 响应数据
-  "error": null  // 错误信息，成功时为 null
-}
-```
+有关详细信息，参见 [`pkg/prompts/prompts.go`](./pkg/prompts/prompts.go) 中的注释信息。
 
-### 成功响应示例
+#### 修改 MCP Prompts
 
-```json
-{
-  "status": "success",
-  "type": "query_result",
-  "data": {
-    "result_type": "table",
-    "columns": ["id", "name", "email"],
-    "rows": [
-      {"id": 1, "name": "John", "email": "john@example.com"},
-      {"id": 2, "name": "Jane", "email": "jane@example.com"}
-    ],
-    "metadata": {
-      "affected_rows": 0,
-      "row_count": 2,
-      "query": "SELECT * FROM users LIMIT 2"
-    }
-  },
-  "error": null
-}
-```
+如需修改 MCP Prompts，遵循以下步骤：
 
-### 错误响应示例
+1. 编辑 `pkg/prompts/docs/` 目录中相应的 Markdown 文件。
+2. 运行 `make build` 命令，重新构建应用程序。将更新的 MCP Prompts 嵌入到二进制文件中。
 
-```json
-{
-  "status": "error",
-  "type": "error_response",
-  "data": null,
-  "error": {
-    "code": "SYNTAX_ERROR",
-    "message": "Query error: syntax error at or near \"SLECT\"",
-    "details": "syntax error at or near \"SLECT\"",
-    "query": "SLECT * FROM users"
-  }
-}
-```
+## 源码编译
 
-## 项目结构
+### 前提条件
 
-```
+- 已安装 Go 1.23 或更高版本。
+- 已下载并安装 PostgreSQL 数据库驱动 `lib/pq`。
+- 已安装和运行 KWDB 数据库、配置数据库认证方式、创建数据库。有关详细信息，参见 [KWDB 文档官网](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/overview.html)。
+- 已创建具有表级别及以上操作权限的用户。有关详细信息，参见[创建用户](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/bare-metal/user-config-bare-metal.html)。
+
+### 安装部署
+
+1. 克隆仓库。
+
+    ```shell
+    git clone https://gitee.com/kwdb/mcp-kwdb-server-go.git
+    cd mcp-kwdb-server-go
+    ```
+
+2. 安装依赖。
+
+    ```shell
+    make deps
+    ```
+
+3. 构建应用。
+
+    ```shell
+    make build
+    ```
+
+编译和安装成功后的文件清单如下：
+
+```plain
 mcp-kwdb-server-go/
 ├── cmd/
 │   └── kwdb-mcp-server/
@@ -279,79 +229,93 @@ mcp-kwdb-server-go/
 └── README.md                 # 本文件
 ```
 
-## 维护提示内容
+### 启动 KWDB MCP Server
 
-提示内容存储在位于 `pkg/prompts/docs/` 目录的 Markdown 文件中。这些文件在编译时使用 Go 的 `embed` 包嵌入到二进制文件中。
+KWDB MCP Server 支持以下两种传输机制：
 
-### Markdown 文件结构
+- 标准输入/输出模式：使用标准输入/输出进行通信，适用于本地进程。默认情况下，KWDB MCP Server 采用标准输入/输出模式。
 
-以下 Markdown 文件用于提示：
+- SSE（Server-Sent Events，服务器发送事件）模式：使用 HTTP POST 进行服务器到客户端的消息传递。
 
-- `pkg/prompts/docs/ReadExamples.md`：包含读取查询示例（SELECT 语句）
-- `pkg/prompts/docs/WriteExamples.md`：包含写入查询示例（INSERT、UPDATE、DELETE、CREATE、ALTER）
-- `pkg/prompts/docs/DBDescription.md`：包含数据库描述
-- `pkg/prompts/docs/SyntaxGuide.md`：包含 SQL 语法指南
-- `pkg/prompts/docs/ClusterManagementGuide.md`：包含集群管理指南
-- `pkg/prompts/docs/DataMigrationGuide.md`：包含数据迁移指南
-- `pkg/prompts/docs/InstallationGuide.md`：包含安装指南
-- `pkg/prompts/docs/PerformanceTuningGuide.md`：包含性能调优指南
-- `pkg/prompts/docs/TroubleShootingGuide.md`：包含故障排除指南
-- `pkg/prompts/docs/BackupRestoreGuide.md`：包含备份和恢复指南
-- `pkg/prompts/docs/DBATemplate.md`：包含数据库管理模板
+#### 标准输入/输出模式
 
-### 如何修改Prompts内容
+- 使用 PostgreSQL 连接字符串运行 KWDB MCP Server：
 
+    ```shell
+    ./bin/kwdb-mcp-server "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
+    ```
 
-1. 编辑 `pkg/prompts/docs/` 目录中的相应 Markdown 文件。
-2. 使用 `make build` 重新构建应用程序。
-3. 新内容将嵌入到二进制文件中。
+- 使用 Makefile 运行 KWDB MCP Server：
 
-### 添加新的Prompts
+    ```shell
+    CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" make run
+    ```
 
+参数说明：
 
-1. 在 `pkg/prompts/docs/` 中创建一个新的 Markdown 文件，例如 `NewUseCase.md`
-2. 在 `pkg/prompts/prompts.go` 中添加变量和加载代码
-3. 为新提示创建注册函数
-4. 将注册函数调用添加到 `registerUseCasePrompts()`
-5. 更新 README.md 以记录新提示
+- `username`：连接 KWDB 数据库的用户名。
+- `password`：身份验证时使用的密码。
+- `hostname`：KWDB 数据库的 IP 地址。
+- `port`：KWDB 数据库的连接端口。
+- `database_name`：需要访问的 KWDB 数据库名称。
+- `sslmode`：SSL 模式。支持的取值包括 `disable`、`allow`、`prefer`、`require`、`verify-ca` 和 `verify-full`。有关 SSL 模式相关的详细信息，参见 [SSL 模式参数](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0)。
 
-有关详细说明，请参阅 `pkg/prompts/prompts.go` 中的注释。
+#### SSE 模式
 
-## 安全性
+如需访问部署在其他服务器上的 KWDB 数据库，用户可以在 SSE 模式下运行 KWDB MCP Server。
 
-KWDB 服务器实现以下安全措施：
+> **说明**
+>
+> 用户需要提供数据库连接字符串作为最后一个参数。
 
-- 读取和写入操作的单独工具
-- 验证查询以确保它们与预期的操作类型匹配
-- 未授权操作的清晰错误消息
+- 使用 PostgreSQL 连接字符串运行 KWDB MCP Server：
+
+    ```shell
+    ./bin/kwdb-mcp-server -t sse -addr ":8080" -base-url "http://localhost:8080" "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
+    ```
+
+- 使用 Makefile 运行 KWDB MCP Server：
+
+    ```shell
+    CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" ADDR=":8080" BASE_URL="http://localhost:8080" make run -sse
+    ```
+
+参数说明：
+
+- `-t` 或 `-transport`：传输类型，支持设置为 `stdio` 或 `sse`。
+  - `stdio`：标准输入/输出模式
+  - `sse`：SSE 模式
+- `-addr` 或 `ADDR`：KWDB MCP Server 的监听端口，默认为 `:8080`。
+- `-base-url` 或 `BASE_URL`：KWDB MCP Server 的 IP 地址，默认为 `http://localhost:8080`。
+- `username`：连接 KWDB 数据库的用户名。
+- `password`：身份验证时使用的密码。
+- `hostname`：KWDB 数据库的 IP 地址。
+- `port`：KWDB 数据库的连接端口。
+- `database_name`：需要访问的 KWDB 数据库名称。
+- `sslmode`：SSL 模式。支持的取值包括 `disable`、`allow`、`prefer`、`require`、`verify-ca` 和 `verify-full`。有关 SSL 模式相关的详细信息，参见 [SSL 模式参数](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0)。
+
+## 集成 LLM Agent
+
+有关 KWDB MCP Server 如何集成 LLM Agent 的详细信息，参见[集成 LLM Agent](./docs/integrate-llm-agent.md)。
+
+## 故障排查
+
+有关如何排查 KWDB MCP Server 故障的详细信息，参见[故障排查](./docs/troubleshooting.md)。
+
+## 文档
+
+有关 KWDB MCP Server 的相关文档，参见 [KWDB 文档官网]()。<!--待添加文档链接-->
 
 ## 未来增强
 
 - [ ] **查询历史**：实现查询历史功能
-- [x] **远程模式**：支持连接到远程MCP服务器
+- [x] **远程模式**：支持连接到远程 KWDB MCP Server
 - [x] **改进的优化建议**：增强查询优化建议
 - [ ] **指标资源**：添加数据库指标信息
 
-## 故障排除
-
-如果遇到问题：
-
-1. 验证数据库连接字符串是否正确
-2. 确保数据库服务器可从您的机器访问
-3. 检查数据库用户是否具有足够的权限
-4. 验证您的 Agent MCP 服务器配置
-5. 检查是否有可能阻塞端口的现有 kwdb-mcp-server 进程
-
-### SSE 模式特定问题
-
-1. **连接被拒绝**：确保服务器正在运行并监听指定地址
-2. **CORS 错误**：如果从 Web 浏览器访问，确保服务器的基础 URL 与您连接的 URL 匹配
-3. **网络问题**：检查防火墙或网络配置是否阻止连接
-4. **数据库连接**：服务器仍需要连接到数据库，因此确保数据库可从服务器位置访问
-
 ## 贡献
 
-欢迎贡献！请随时提交issue和PR。
+欢迎贡献！请随时提交 Issue 和 PR。
 
 ## 许可证
 

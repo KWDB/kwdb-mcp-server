@@ -1,367 +1,336 @@
 # KWDB MCP Server
 
-A MCP-compatible server for interacting with KWDB (KaiwuDB) databases.
-
 [中文版](README_zh.md)
 
 ## Overview
 
-KWDB MCP Server provides a set of tools and resources for interacting with KWDB (KaiwuDB) databases through the MCP protocol. It supports both read and write operations, allowing you to query data, modify data, and perform DDL operations.
+The KWDB MCP Server is a server implementation based on the [MCP](https://modelcontextprotocol.io/introduction) (Model Context Protocol) protocol, which provides a set of tools and resources for interacting with the KWDB database and providing business intelligence functionality through the MCP protocol. The KWDB MCP Server supports reading, writing, querying, modifying data, and performing DDL operations.
 
-## Features
+### Architecture
 
-- **Read Operations**: Execute SELECT, SHOW, EXPLAIN, and other read-only queries
-- **Write Operations**: Execute INSERT, UPDATE, DELETE, and DDL operations like CREATE, DROP, ALTER
-- **Database Information**: Get information about the database, including tables and their schemas
-- **Syntax Guide**: Access a comprehensive syntax guide for KWDB (KaiwuDB) via prompts
-- **Automatic LIMIT**: Prevents large result sets by automatically adding LIMIT 20 to SELECT queries without a LIMIT clause
+The core process of the KWDB MCP Server consists of the following components:
 
-## Installation
+- Parse MCP protocol: deal with MCP StdIO or HTTP SSE requests.
+- Schedule MCP Tools: distribute API requests based on the types of MCP Tools.
+- Prepare queries: automatically add the `LIMIT 20` clause for SQL queries without a `LIMIT` clause.
+- Format query results: adopt a consistent JSON format for all API responses.
 
-### Prerequisites
-
-- Go 1.23 or higher
-- Access to a KWDB (KaiwuDB) database
-- VSCode with AI extensions that support MCP (like Cline)
-
-### Installation Steps
-
-1. Clone the repository:
-   ```bash
-   git clone https://gitee.com/kwdb/mcp-kwdb-server-go.git
-   cd mcp-kwdb-server-go
-   ```
-
-2. Install dependencies:
-   ```bash
-   make deps
-   ```
-
-3. Build the application:
-   ```bash
-   make build
-   ```
-
-## Usage
-
-Run the server with a PostgreSQL connection string:
-
-```bash
-./bin/kwdb-mcp-server "postgresql://username:password@hostname:port/database?sslmode=disable"
+```mermaid
+flowchart TD
+    A[MCP Protocol Layer] --> B[Tool Scheduler]
+    A --> C[Resource Manager]
+    B --> D{Judge Query Types}
+    D -->|Read Operation| E[Query Engine]
+    D -->|Write Operation| F[Transaction Processing Engine]
+    E --> G[Format Results]
+    F --> G
+    G --> H[Generate Response]
+    C --> I[Database Metadata]
+    C --> J[Table Schema]
+    H --> A
+    I --> E
+    J --> E
 ```
 
-Or using the Makefile:
+### Features
 
-```bash
-CONNECTION_STRING="postgresql://username:password@hostname:port/database?sslmode=disable" make run
+- **Read Operations**: execute `SELECT`, `SHOW`, `EXPLAIN`, and other read-only queries.
+- **Write Operations**: execute `INSERT`, `UPDATE`, `DELETE`, and `CREATE`, `DROP`, `ALTER` DDL operations.
+- **Database Information**: get information about the database, including tables and their schemas.
+- **Syntax Guide**: access a comprehensive syntax guide for KWDB through Prompts.
+- **Standard API Response**: provide a consistent JSON structure for all API responses.
+    ```json
+    {
+      "status": "success",  // or "error"
+      "type": "query_result",  // response type
+      "data": { ... },  // response data
+      "error": null  // errors, if successful, it is set to null
+    }
+    ```
+- **Automatic LIMIT**: prevent large result sets by automatically adding the `LIMIT 20` clause to `SELECT` queries without a `LIMIT` clause.
+
+### Security
+
+The KWDB MCP Server provides the following security measures:
+
+- Provide separate tools for read and write operations.
+- Valid queries to ensure that they match the expected operation type.
+- Print clear error messages for unauthorized operations.
+
+```mermaid
+flowchart TD
+    A[SQL Statement] --> B{Parse Syntax}
+    B -->|SELECT| C[Allow]
+    B -->|SHOW| C
+    B -->|EXPLAIN| C
+    B -->|INSERT/UPDATE/DELETE| D[Valid Write Operation]
+    D --> E[Transaction Logs]
+    B -->| Others | F[Refuse]
 ```
 
-### Transport Modes
+### MCP Resources
 
-The server supports two transport modes:
+MCP Resources allow the KWDB MCP Server to expose data and content that can be read by MCP clients and used as context for LLM interactions. The KWDB MCP Server provides the following MCP Resources:
 
-#### Standard I/O Mode (Default)
+| Resources           | URI Format                       | Description                                                                            | Example                     |
+|---------------------|----------------------------------|----------------------------------------------------------------------------------------|-----------------------------|
+| Product information | `kwdb://product_info`            | Product information, including the version and supported features                      | `kwdb://product_info/`      |
+| Database metadata   | `kwdb://db_info/{database_name}` | Information about a specific database, including the engine type, comments, and tables | `kwdb://db_info/db_shig`    |
+| Table schema        | `kwdb://table/{table_name}`      | Schema of a specific table, including columns and example queries                      | `kwdb://table/user_profile` |
 
-This is the default mode, which uses standard input/output for communication:
+### MCP Tools
 
-```bash
-./bin/kwdb-mcp-server "postgresql://username:password@hostname:port/database?sslmode=disable"
-```
+The MCP Tools enable the KWDB MCP Server to expose executable functionality to MCP clients. Through MCP Tools, LLMs can interact with external systems. The KWDB MCP Server provides the following MCP Tools.
 
-#### SSE Mode (Server-Sent Events over HTTP)
+#### read-query
 
-For remote access, you can run the server in SSE mode. Note that you still need to provide the database connection string as the last argument:
+The KWDB MCP Server executes the `SELECT`, `SHOW`, `EXPLAIN` statements, and other read-only queries to read data from the database. The `read_query` function returns the query results in a format of array for your SQL statement. In addition, the KWDB MCP Server will automatically add the `LIMIT 20` clause to `SELECT` queries without a `LIMIT` clause to prevent large result sets.
 
-```bash
-./bin/kwdb-mcp-server -t sse -addr ":8080" -base-url "http://localhost:8080" "postgresql://username:password@hostname:port/database?sslmode=disable"
-```
+Examples:
 
-Or using the Makefile:
-
-```bash
-CONNECTION_STRING="postgresql://username:password@hostname:port/database?sslmode=disable" ADDR=":8080" BASE_URL="http://localhost:8080" make run-sse
-```
-
-Options:
-- `-t` or `-transport`: Transport type (`stdio` or `sse`)
-- `-addr`: Address to listen on for SSE mode (default: `:8080`)
-- `-base-url`: Base URL for SSE mode (default: `http://localhost:8080`)
-
-## Integration with LLM Agents
-
-KWDB Server is designed to work with any LLM Agent that supports the MCP protocol. Below is an example using Cline, but similar steps apply to other MCP-compatible agents.
-
-### Example: Integration with Cline
-
-1. Ensure you have Cline installed in VSCode
-
-2. Add the MCP server configuration to your VSCode settings. Open VSCode Cline > MCP Servers > Installed > Configure MCP Servers and add:
-
-#### For Standard I/O Mode
-
-```json
-"mcpServers": {
-  "kwdb-server": {
-    "command": "/path/to/bin/kwdb-mcp-server",
-    "args": [
-      "postgresql://username:password@host:port/database"
-    ],
-    "disabled": false,
-    "autoApprove": []
-  }
-}
-```
-
-#### For SSE Mode
-
-First, start the server in SSE mode:
-
-```bash
-./bin/kwdb-mcp-server -t sse -addr ":8080" -base-url "http://localhost:8080" "postgresql://username:password@hostname:port/database?sslmode=disable"
-```
-
-Then, configure Cline to connect to the running server:
-
-```json
-"mcpServers": {
-  "kwdb-server-sse": {
-    "url": "http://localhost:8080",
-    "disabled": false,
-    "autoApprove": []
-  }
-}
-```
-
-3. Restart the server from VSCode Cline > MCP Servers > Installed > kwdb-server > Restart Server
-
-### Integration with Other MCP-Compatible Agents
-
-For other LLM Agents that support the MCP protocol, refer to their specific documentation for how to configure MCP servers. The key requirements are:
-
-- For Standard I/O Mode: The ability to execute the KWDB Server binary with command-line arguments
-- For SSE Mode: The ability to connect to an HTTP endpoint that implements the MCP protocol
-
-## Tools
-
-The server provides the following tools:
-
-### read-query
-
-Execute SELECT, SHOW, EXPLAIN, and other read-only queries. SELECT queries without a LIMIT clause will automatically have LIMIT 20 added to prevent large result sets.
-
-Example:
 ```sql
+-- Query table data.
 SELECT * FROM users LIMIT 10;
+
+-- List all created tables.
 SHOW TABLES;
+
+-- Execute a SQL query and generate details about the SQL query.
 EXPLAIN ANALYZE SELECT * FROM orders WHERE user_id = 1;
 ```
 
-### write-query
+#### write-query
 
-Execute data modification queries including DML and DDL operations.
+The KWDB MCP Server executes data modification queries, including DML and DDL operations.
 
-Example:
+Examples:
+
 ```sql
+-- Insert data into the table.
 INSERT INTO users (name, email) VALUES ('John Doe', 'john@example.com');
+
+-- Update data in the table.
 UPDATE users SET email = 'new-email@example.com' WHERE id = 1;
+
+-- Remove data from the table.
 DELETE FROM users WHERE id = 1;
+
+-- Create a table.
 CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT, price DECIMAL);
+
+-- Add a column to a table.
 ALTER TABLE products ADD COLUMN description TEXT;
+
+-- Remove a table.
 DROP TABLE products;
 ```
 
-## Prompts
+### MCP Prompts
 
-The server provides the following prompts:
-| Prompt Name | Description |
-|------------|-------------|
-| db_description | A comprehensive description of KWDB (KaiwuDB) database, including its capabilities, features, and use cases. |
-| syntax_guide | A comprehensive syntax guide for KWDB (KaiwuDB), including examples of common queries and best practices. |
-| cluster_management | A comprehensive guide for managing KWDB clusters, including node management, load balancing, and monitoring. |
-| data_migration | Guide for migrating data to and from KWDB, including import/export methods and best practices. |
-| installation | Step-by-step guide for installing and deploying KWDB in various environments. |
-| performance_tuning | Guide for optimizing KWDB performance, including query optimization, indexing strategies, and system-level tuning. |
-| troubleshooting | Guide for diagnosing and resolving common KWDB issues and errors. |
-| backup_restore | Comprehensive guide for backing up and restoring KWDB databases, including strategies, tools, and best practices. |
-| dba_template | Template and guidelines for prompts writing. |
+MCP Prompts enable the KWDB MCP Server to define reusable prompt templates and workflows that MCP clients can easily surface to users and LLMs. They provide a powerful way to standardize and share common LLM interactions. The KWDB MCP Server provides the following MCP Prompts:
 
+| Type                 | Prompt Name          | Description                                                                                                          |
+|----------------------|----------------------|----------------------------------------------------------------------------------------------------------------------|
+| Database description | `db_description`     | A comprehensive description of KWDB database, including core functions, supported features, and use cases.           |
+| Syntax guide         | `syntax_guide`       | A comprehensive syntax guide for KWDB, including examples of common queries and best practices.                      |
+| Cluster management   | `cluster_management` | A comprehensive guide for managing KWDB clusters, including node management, load balancing, and monitoring.         |
+| Data migration       | `data_migration`     | A guide for migrating data to and from KWDB, including import/export methods and best practices.                     |
+| Installation         | `installation`       | A step-by-step guide for installing and deploying KWDB in various environments.                                      |
+| Performance tunning  | `performance_tuning` | A guide for optimizing KWDB performance, including query optimization, indexing strategies, and system-level tuning. |
+| Troubleshooting      | `troubleshooting`    | A guide for diagnosing and resolving common KWDB issues and errors.                                                  |
+| Backup and restore   | `backup_restore`     | A comprehensive guide for backing up and restoring KWDB databases, including strategies, tools, and best practices.  |
+| DBA templates        | `dba_template`       | Templates and guidelines for MCP Prompts writing.                                                                    |
 
-## Resources
+#### Add MCP Prompts
 
-The server provides the following resources:
+The MCP Prompts are Markdown files stored in the `pkg/prompts/docs/` directory. These files are embedded into the binary when compiling the KWDB MCP Server using Go's `embed` package. Currently, the KWDB MCP Server provides the following Prompts files:
 
-- `kwdb://product_info`: Information about product, including version and capabilities
-- `kwdb://db_info/{database_name}`: Information about a specific database, including engine type, comment, and tables
-- `kwdb://table/{table_name}`: Schema of a specific table, including columns and example queries
+- `pkg/prompts/docs/ReadExamples.md`: contain read query examples (using the `SELECT` statement).
+- `pkg/prompts/docs/WriteExamples.md`: contain write query examples (using the `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER` statements).
+- `pkg/prompts/docs/DBDescription.md`: contain the database description.
+- `pkg/prompts/docs/SyntaxGuide.md`: contain the SQL syntax guide.
+- `pkg/prompts/docs/ClusterManagementGuide.md`: contain the cluster management guide.
+- `pkg/prompts/docs/DataMigrationGuide.md`: contain the data migration guide.
+- `pkg/prompts/docs/InstallationGuide.md`: contain the installation guide.
+- `pkg/prompts/docs/PerformanceTuningGuide.md`: contain the performance tuning guide.
+- `pkg/prompts/docs/TroubleShootingGuide.md`: contain the troubleshooting guide.
+- `pkg/prompts/docs/BackupRestoreGuide.md`: contain the backup and restore guide.
+- `pkg/prompts/docs/DBATemplate.md`: contain the database administration template.
 
-## API Response Format
+To add MCP Prompts, follow these steps:
 
-All API responses follow a consistent JSON structure:
+1. Create a Markdown file in the `pkg/prompts/docs/` directory, such as `new_usecase.md`.
+2. Add the variable and load codes in the [`pkg/prompts/prompts.go`](./pkg/prompts/prompts.go) file.
+3. Create a registration function for the new MCP Prompts.
+4. Add the registration function call to `registerUseCasePrompts()` in the [`pkg/prompts/prompts.go`](./pkg/prompts/prompts.go) file.
+5. Update the `README` file.
 
-```json
-{
-  "status": "success",  // or "error"
-  "type": "query_result",  // response type
-  "data": { ... },  // response data
-  "error": null  // error information, null on success
-}
-```
+For details about how to add MCP Prompts, see comments in the [`pkg/prompts/prompts.go`](./pkg/prompts/prompts.go) file.
 
-### Success Response Example
+#### Modify MCP Prompts
 
-```json
-{
-  "status": "success",
-  "type": "query_result",
-  "data": {
-    "result_type": "table",
-    "columns": ["id", "name", "email"],
-    "rows": [
-      {"id": 1, "name": "John", "email": "john@example.com"},
-      {"id": 2, "name": "Jane", "email": "jane@example.com"}
-    ],
-    "metadata": {
-      "affected_rows": 0,
-      "row_count": 2,
-      "query": "SELECT * FROM users LIMIT 2"
-    }
-  },
-  "error": null
-}
-```
+To modify MCP Prompts, follow these steps:
 
-### Error Response Example
+1. Edit the specific Markdown file(s) in the `pkg/prompts/docs/` directory.
+2. Run the `make build` command to rebuild the application. The updated MCP Prompts will be embedded in the binary.
 
-```json
-{
-  "status": "error",
-  "type": "error_response",
-  "data": null,
-  "error": {
-    "code": "SYNTAX_ERROR",
-    "message": "Query error: syntax error at or near \"SLECT\"",
-    "details": "syntax error at or near \"SLECT\"",
-    "query": "SLECT * FROM users"
-  }
-}
-```
+## Build From Source Code
 
-## Project Structure
+### Prerequisites
 
-```
+- Install Go 1.23 or higher.
+- Download and install PostgreSQL Driver `lib/pq`.
+- Install and start KWDB, configure the authentication method, and create a database. For details, see the [KWDB Documentation Website](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/overview.html).
+- Create a user with appropriate privileges on tables and databases. For details, see [Create Users](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/bare-metal/user-config-bare-metal.html).
+
+### Steps
+
+1. Clone the repository.
+
+    ```shell
+    git clone https://gitee.com/kwdb/mcp-kwdb-server-go.git
+    cd mcp-kwdb-server-go
+    ```
+
+2. Install dependencies.
+
+    ```shell
+    make deps
+    ```
+
+3. Build the application.
+
+    ```shell
+    make build
+    ```
+
+If you succeed, the application adopts the following structure.
+
+```plain
 mcp-kwdb-server-go/
 ├── cmd/
 │   └── kwdb-mcp-server/
-│       └── main.go           # Main application entry point
+│       └── main.go           # The main application
 ├── pkg/
 │   ├── db/
 │   │   └── db.go             # Database operations
 │   ├── prompts/
 │   │   ├── prompts.go        # MCP Prompts
-│   │   └── docs/         # Markdown files for prompts
+│   │   └── docs/             # MCP Prompts files
 │   │       ├── ReadExamples.md     # Read query examples
 │   │       ├── WriteExamples.md    # Write query examples
-│   │       ├── DBDescription.md    # Database description
-│   │       ├── SyntaxGuide.md      # SQL syntax guide
+│   │       ├── DBDescription.md    # Database descriptions
+│   │       ├── SyntaxGuide.md      # SQL Syntax guide
 │   │       ├── ClusterManagementGuide.md # Cluster management guide
 │   │       ├── DataMigrationGuide.md    # Data migration guide
 │   │       ├── InstallationGuide.md      # Installation guide
-│   │       ├── PerformanceTuningGuide.md # Performance tuning guide
+│   │       ├── PerformanceTuningGuide.md # Performance tunning
 │   │       ├── TroubleShootingGuide.md   # Troubleshooting guide
 │   │       ├── BackupRestoreGuide.md     # Backup and restore guide
-│   │       └── DBATemplate.md            # Database administration template
+│   │       └── DBATemplate.md            # DBA templates
 │   ├── resources/
-│   │   └── resources.go      # MCP resources
+│   │   └── resources.go      # MCP Resources
 │   ├── server/
-│   │   └── server.go         # Server setup
+│   │   └── server.go         # KWDB MCP Server configurations
 │   └── tools/
-│       └── tools.go          # MCP tools
-├── Makefile                  # Build and run commands
-└── README.md                 # This file
+│       └── tools.go          # MCP Tools
+├── Makefile                  # Commands for building and running the KWDB MCP Server
+└── README.md                 # README file
 ```
 
-## Maintaining Prompt Content
+### Start KWDB MCP Server
 
-The prompt content is stored in Markdown files located in the `pkg/prompts/docs/` directory. These files are embedded into the binary at compile time using Go's `embed` package. 
+The KWDB MCP Server supports the following two transport modes:
 
-### Markdown Files Structure
+- StdIO (Standard Input/Output) mode: the KWDB MCP Server uses the standard input/output for communication. This is the default mode.
 
-The following Markdown files are used for prompts:
+- SSE (Server-Sent Events) mode: the KWDB MCP Server uses HTTP POST for communication between the server and the client.
 
-- `pkg/prompts/docs/ReadExamples.md`: Contains examples of read queries (SELECT statements)
-- `pkg/prompts/docs/WriteExamples.md`: Contains examples of write queries (INSERT, UPDATE, DELETE, CREATE, ALTER)
-- `pkg/prompts/docs/DBDescription.md`: Contains the database description
-- `pkg/prompts/docs/SyntaxGuide.md`: Contains the SQL syntax guide
-- `pkg/prompts/docs/ClusterManagementGuide.md`: Contains the cluster management guide
-- `pkg/prompts/docs/DataMigrationGuide.md`: Contains the data migration guide
-- `pkg/prompts/docs/InstallationGuide.md`: Contains the installation guide
-- `pkg/prompts/docs/PerformanceTuningGuide.md`: Contains the performance tuning guide
-- `pkg/prompts/docs/TroubleShootingGuide.md`: Contains the troubleshooting guide
-- `pkg/prompts/docs/BackupRestoreGuide.md`: Contains the backup and restore guide
-- `pkg/prompts/docs/DBATemplate.md`: Contains the database administration template
+#### StdIO Mode
 
-### How to Modify Prompt Content
+- Run the KWDB MCP Server with a PostgreSQL connection string:
 
-To modify the prompt content:
+    ```shell
+    ./bin/kwdb-mcp-server "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
+    ```
 
-1. Edit the appropriate Markdown file in the `pkg/prompts/docs/` directory.
-2. Rebuild the application using `make build`.
-3. The new content will be embedded in the binary.
+- Run the KWDB MCP Server using the Makefile:
 
-### Adding New Use Case Prompts
+    ```shell
+    CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" make run
+    ```
 
-To add a new use case prompt:
+Parameters:
 
-1. Create a new Markdown file in `pkg/prompts/docs/`, e.g., `new_usecase.md`
-2. Add the variable and loading code in `pkg/prompts/prompts.go`
-3. Create a registration function for the new prompt
-4. Add the registration function call to `registerUseCasePrompts()`
-5. Update the README.md to document the new prompt
+- `username`: the username used to connect to the KWDB database
+- `password`: the password for the username
+- `hostname`: the IP address of the KWDB database
+- `port`: the port of the KWDB database
+- `database_name`: the name of the KWDB database
+- `sslmode`: the SSL mode, available options are `disable`, `allow`, `prefer`, `require`, `verify-ca` and `verify-full`. For details about the SSL mode, see [SSL Mode Parameters](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0).
 
-Refer to the comments in `pkg/prompts/prompts.go` for detailed instructions.
+#### SSE Mode
 
-## Security
+To access KWDB databases deployed on other servers, you can start the KWDB MCP Server in SSE mode.
 
-KWDB Server implements the following security measures:
+> **Note**
+>
+> You need to provide the database connection string as the last parameter.
 
-- Separate tools for read and write operations
-- Validation of queries to ensure they match the expected operation type
-- Clear error messages for unauthorized operations
+- Run the KWDB MCP Server with a PostgreSQL connection string:
 
-## Future Enhancements
+    ```shell
+    ./bin/kwdb-mcp-server -t sse -addr ":8080" -base-url "http://localhost:8080" "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
+    ```
 
-- [ ] **Query history**: Implement query history functionality
-- [x] **Remote mode**: Support connecting to remote MCP Server
-- [x] **Improved optimization suggestions**: Enhance query optimization recommendations
-- [ ] **Metrics resource**: Add database metrics information
+- Run the KWDB MCP Server using the Makefile:
+
+    ```shell
+    CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" ADDR=":8080" BASE_URL="http://localhost:8080" make run -sse
+    ```
+
+Parameters:
+
+- `-t` or `-transport`: the transport type, available options are `stdio` or `sse`.
+  - `stdio`: the StdIO mode
+  - `sse`: the SSE mode
+- `-addr` or `ADDR`: the listening port of the KWDB MCP Server. By default, it is set to `:8080`.
+- `-base-url` or `BASE_URL`: the IP address of the KWDB MCP Server. By default, it is set to `http://localhost:8080`.
+- `username`: the username used to connect to the KWDB database
+- `password`: the password for the username
+- `hostname`: the IP address of the KWDB database
+- `port`: the port of the KWDB database
+- `database_name`: the name of the KWDB database
+- `sslmode`: the SSL mode, available options are `disable`, `allow`, `prefer`, `require`, `verify-ca` and `verify-full`. For details about the SSL mode, see [SSL Mode Parameters](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0).
+
+## Integrate with LLM Agents
+
+For details about how the KWDB MCP Server integerates with LLM Agents, see [Integrate with LLM Agents](./docs/integrate-llm-agent_en.md).
 
 ## Troubleshooting
 
-If you encounter issues:
+For details about how to troubleshoot the KWDB MCP Server, see [Troubleshooting](./docs/troubleshooting_en.md).
 
-1. Verify the database connection string is correct
-2. Ensure the database server is accessible from your machine
-3. Check that the database user has sufficient permissions
-4. Verify your Agent MCP server configuration
-5. Check for existing kwdb-mcp-server processes that might be blocking the port
+## Documentation
 
-### SSE Mode Specific Issues
+For documentation about the KWDB MCP Server, see the [KWDB Documentation Website](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/overview.html).
 
-1. **Connection refused**: Make sure the server is running and listening on the specified address
-2. **CORS errors**: If accessing from a web browser, ensure the server's base URL matches the URL you're connecting from
-3. **Network issues**: Check if firewalls or network configurations are blocking the connection
-4. **Database connectivity**: The server still needs to connect to the database, so ensure the database is accessible from the server's location
+## Future Enhancements
 
-## Contributing
+- [ ] **Query history**: implement query history functionality.
+- [x] **Remote mode**: support connecting to the remote KWDB MCP Server.
+- [x] **Improved optimization suggestions**: enhance query optimization recommendations.
+- [ ] **Metrics resource**: aAdd database metrics.
+
+## Contribution
 
 Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ## License
 
-This project is licensed under the MIT License
+This project is licensed under the MIT License.
 
 ## Acknowledgements
 
 - [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) - MCP Go server framework
 - [lib/pq](https://github.com/lib/pq) - PostgreSQL Go driver
-
