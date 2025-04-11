@@ -311,22 +311,6 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 	// Get additional properties
 	properties := make(map[string]interface{})
 
-	// Add database size information
-	var totalBytes int64
-	sizeQuery := `
-		SELECT SUM(range_size) as total_bytes
-		FROM kwdb_internal.ranges
-		WHERE database_name = $1
-	`
-	if err := DB.QueryRow(sizeQuery, dbName).Scan(&totalBytes); err == nil {
-		// Convert bytes to human readable format
-		size := formatBytes(totalBytes)
-		properties["size"] = size
-	} else {
-		// Fallback to empty value if query fails
-		properties["size"] = ""
-	}
-
 	// Add database encoding
 	var encoding string
 	encodingQuery := `
@@ -371,20 +355,6 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 		Comment:    comment,
 		Properties: properties,
 	}, nil
-}
-
-// formatBytes converts bytes to a human-readable format (KB, MB, GB, etc.)
-func formatBytes(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 // GetTableExampleQueries generates example queries for a specific table
@@ -825,30 +795,45 @@ func GetTableMetadata(tableName string) (map[string]interface{}, error) {
 
 	// Determine table type using SHOW TABLES
 	var tableType string
-	storageEngine := "KWDB"
 
-	// First try to get table type from SHOW TABLES
-	tableTypeQuery := `SHOW TABLES WHERE table_name = $1`
-	var showTableType string
-	err = DB.QueryRow(tableTypeQuery, tableName).Scan(&tableName, &showTableType)
+	// 获取所有表的类型信息
+	tableTypeQuery := `SHOW TABLES`
+	rows, err = DB.Query(tableTypeQuery)
 	if err != nil {
-		fmt.Printf("Warning: Failed to get table type from SHOW TABLES: %v\n", err)
-		// If we can't get it from SHOW TABLES, try to infer from CREATE TABLE
+		fmt.Printf("Warning: Failed to get table types from SHOW TABLES: %v\n", err)
+		// 如果无法从SHOW TABLES获取，尝试从CREATE TABLE语句推断
 		if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
 			tableType = "TIME SERIES TABLE"
-			storageEngine = "TSDB v2.1"
 		} else {
 			tableType = "BASE TABLE"
 		}
 	} else {
-		tableType = showTableType
-		if tableType == "TIME SERIES TABLE" {
-			storageEngine = "TSDB v2.1"
+		defer rows.Close()
+		// 遍历结果找到目标表
+		found := false
+		var currentTable, currentType string
+		for rows.Next() {
+			if err := rows.Scan(&currentTable, &currentType); err != nil {
+				fmt.Printf("Warning: Error scanning table type: %v\n", err)
+				continue
+			}
+			if currentTable == tableName {
+				tableType = currentType
+				found = true
+				break
+			}
+		}
+		if !found {
+			// 如果在SHOW TABLES结果中没找到，使用默认推断
+			if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
+				tableType = "TIME SERIES TABLE"
+			} else {
+				tableType = "BASE TABLE"
+			}
 		}
 	}
 
 	metadata["table_type"] = tableType
-	metadata["storage_engine"] = storageEngine
 
 	// Extract partition information if available
 	partitionInfo := extractPartitionInfo(createTableSQL)

@@ -6,7 +6,7 @@ github.com/google/uuid
 github.com/lib/pq
 github.com/lib/pq/oid
 github.com/lib/pq/scram
-# github.com/mark3labs/mcp-go v0.16.0
+# github.com/mark3labs/mcp-go v0.18.0
 ## explicit; go 1.23
 github.com/mark3labs/mcp-go/client
 github.com/mark3labs/mcp-go/mcp

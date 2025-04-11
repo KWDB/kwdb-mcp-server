@@ -6,7 +6,7 @@ toolchain go1.23.7
 
 require (
 	github.com/lib/pq v1.10.9
-	github.com/mark3labs/mcp-go v0.16.0
+	github.com/mark3labs/mcp-go v0.18.0
 )
 
 require (
