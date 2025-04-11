@@ -127,7 +127,7 @@ IMPORTANT: Do not change the section names or parameter names. Only modify the v
 
 ### Common Operations
 - Start/stop/restart: `systemctl [start|stop|restart] kaiwudb`
-- Status check: `systemctl status kaiwudb`
+- Status check: `systemctl status kaiwudb.service | head -n 10`
 - Auto-start: `systemctl enable kaiwudb`
 
 ### Clock Synchronization

@@ -312,12 +312,19 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 	properties := make(map[string]interface{})
 
 	// Add database size information
-	var dbSize string
+	var totalBytes int64
 	sizeQuery := `
-		SELECT pg_size_pretty(pg_database_size($1)) as size
+		SELECT SUM(range_size) as total_bytes
+		FROM kwdb_internal.ranges
+		WHERE database_name = $1
 	`
-	if err := DB.QueryRow(sizeQuery, dbName).Scan(&dbSize); err == nil {
-		properties["size"] = dbSize
+	if err := DB.QueryRow(sizeQuery, dbName).Scan(&totalBytes); err == nil {
+		// Convert bytes to human readable format
+		size := formatBytes(totalBytes)
+		properties["size"] = size
+	} else {
+		// Fallback to empty value if query fails
+		properties["size"] = ""
 	}
 
 	// Add database encoding
@@ -342,15 +349,18 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 		properties["owner"] = owner
 	}
 
-	// Add database creation time if available
+	// Add database creation time information
 	var creationTime string
 	timeQuery := `
-		SELECT pg_stat_file('base/' || oid || '/PG_VERSION').modification
-		FROM pg_database
-		WHERE datname = $1
+		SELECT MIN(mod_time) as creation_time
+		FROM kwdb_internal.tables
+		WHERE database_name = $1
 	`
 	if err := DB.QueryRow(timeQuery, dbName).Scan(&creationTime); err == nil {
 		properties["creation_time"] = creationTime
+	} else {
+		// Fallback to empty value if query fails
+		properties["creation_time"] = ""
 	}
 
 	// Return database info
@@ -361,6 +371,20 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 		Comment:    comment,
 		Properties: properties,
 	}, nil
+}
+
+// formatBytes converts bytes to a human-readable format (KB, MB, GB, etc.)
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 // GetTableExampleQueries generates example queries for a specific table

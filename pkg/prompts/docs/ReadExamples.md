@@ -1,129 +1,150 @@
 # KWDB Read Query Examples
 
-## Basic Queries
+## Basic Read Operations
+
 ```sql
--- Retrieve first 10 rows from a table
-SELECT * FROM table_name LIMIT 10;
+-- List databases and show current
+SHOW DATABASES;
+SELECT current_database();
 
--- Count total rows in a table
-SELECT COUNT(*) FROM table_name;
-
--- Get execution plan for a query
-EXPLAIN ANALYZE SELECT * FROM table_name WHERE condition;
+-- List tables
+SHOW TABLES;
+SHOW TABLES FROM database_name;
 
 -- Show table structure
 SHOW COLUMNS FROM table_name;
+SHOW COLUMNS FROM database_name.table_name;
+SHOW CREATE TABLE database_name.table_name;
 
--- Get column information from information schema
-SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'table_name';
-
--- List all tables in the current database
-SHOW TABLES;
-
--- Show table creation statement
-SHOW CREATE TABLE table_name;
+-- Get column information
+SELECT column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'table_name';
 ```
 
 ## Relational Database Queries
-```sql
--- Query with filtering and sorting
-SELECT column1, column2 FROM table_name WHERE condition ORDER BY column1 DESC LIMIT 100;
 
--- Join multiple tables
+```sql
+-- Basic read with filtering and sorting
+SELECT column1, column2 
+FROM database_name.table_name 
+WHERE condition 
+ORDER BY column1 DESC 
+LIMIT 100;
+
+-- Count and aggregation functions
+SELECT COUNT(*), AVG(amount), MAX(amount), MIN(amount)
+FROM database_name.table_name;
+
+-- Join operations
 SELECT a.column1, b.column2 
-FROM table_a a 
-JOIN table_b b ON a.id = b.a_id
+FROM database_name.table_a a 
+JOIN database_name.table_b b ON a.id = b.a_id
 WHERE a.column1 > 100;
 
--- Aggregation query
-SELECT category, COUNT(*), AVG(amount), MAX(amount)
-FROM orders
+-- Aggregation with grouping
+SELECT category, COUNT(*), SUM(amount)
+FROM database_name.orders
 GROUP BY category
 HAVING COUNT(*) > 10
 ORDER BY COUNT(*) DESC;
 
--- Query with subquery
-SELECT * FROM customers
-WHERE id IN (SELECT customer_id FROM orders WHERE amount > 1000);
+-- Subqueries and CTEs (Common Table Expressions)
+SELECT * FROM database_name.customers
+WHERE id IN (SELECT customer_id FROM database_name.orders WHERE amount > 1000);
 
--- Common Table Expression (CTE)
 WITH high_value_orders AS (
     SELECT customer_id, SUM(amount) as total
-    FROM orders
+    FROM database_name.orders
     GROUP BY customer_id
     HAVING SUM(amount) > 10000
 )
 SELECT c.name, hvo.total
-FROM customers c
+FROM database_name.customers c
 JOIN high_value_orders hvo ON c.id = hvo.customer_id
 ORDER BY hvo.total DESC;
 
--- Check index usage
-SELECT * FROM pg_stat_user_indexes WHERE relname = 'table_name';
+-- Query execution plan analysis
+EXPLAIN ANALYZE SELECT * FROM database_name.table_name WHERE condition;
 ```
 
 ## Time-Series Database Queries
+
 ```sql
--- Query time-series data with time range
-SELECT ts, value FROM sensor_data 
+-- Query time-series data with time range and tag filtering
+SELECT ts, temperature, humidity 
+FROM database_name.sensor_data 
 WHERE ts BETWEEN '2023-01-01' AND '2023-01-31'
-AND tag_name = 'tag_value'
+AND location = 'Shanghai'
 ORDER BY ts;
 
--- Aggregation by time intervals
+-- Time interval aggregation
 SELECT 
-    time_bucket('1 hour', ts) AS hour,
+    date_trunc('hour', ts) AS hour,
     AVG(temperature) AS avg_temp,
     MAX(temperature) AS max_temp
-FROM sensor_data
+FROM database_name.sensor_data
 WHERE ts >= NOW() - INTERVAL '24 hours'
-AND location_id = 123
+AND device_id = 123
 GROUP BY hour
 ORDER BY hour;
 
--- Filter by TAG columns
-SELECT ts, temperature, humidity
-FROM weather_data
-WHERE location = 'New York'
-AND sensor_type = 'outdoor'
-AND ts >= NOW() - INTERVAL '7 days';
-
--- Latest values per device
+-- Latest values per entity (DISTINCT ON syntax)
 SELECT DISTINCT ON (device_id) 
     ts, device_id, temperature, humidity
-FROM sensor_readings
-WHERE ts >= NOW() - INTERVAL '1 hour'
+FROM database_name.sensor_data
 ORDER BY device_id, ts DESC;
-
--- Check TAG structure
-SHOW CREATE TABLE time_series_table;
 ```
 
-## System Queries
+## System Information Queries
+
 ```sql
--- Check database version
+-- Check database version and connections
 SELECT version();
-
--- List databases
-SHOW DATABASES;
-
--- Show current database
-SELECT current_database();
-
--- Check active connections
 SELECT * FROM pg_stat_activity;
 
--- Check table sizes
-SELECT 
-    table_name,
-    pg_size_pretty(pg_total_relation_size(table_name)) as total_size
-FROM information_schema.tables
-WHERE table_schema = 'public'
-ORDER BY pg_total_relation_size(table_name) DESC;
+-- Database and table metadata
+SELECT * FROM information_schema.tables WHERE table_schema = 'public';
 
--- Check query performance statistics
-SELECT * FROM crdb_internal.cluster_queries
-WHERE start < (now() - INTERVAL '5 minutes')
-ORDER BY cpu_time DESC
-LIMIT 10;
-``` 
+-- Database and table sizes
+SELECT database_name, SUM(range_size) as total_bytes 
+FROM kwdb_internal.ranges 
+GROUP BY database_name;
+
+SELECT database_name, table_name, SUM(range_size) as table_size_bytes
+FROM kwdb_internal.ranges 
+WHERE table_name IS NOT NULL
+GROUP BY database_name, table_name;
+
+-- Database and table creation times
+SELECT database_name, MIN(mod_time) as creation_time 
+FROM kwdb_internal.tables 
+GROUP BY database_name;
+
+-- System resource metrics
+SELECT name, value FROM kwdb_internal.node_metrics 
+WHERE name IN (
+  -- CPU metrics
+  'sys.cpu.sys.percent', 'sys.cpu.user.percent', 
+  'sys.cpu.combined.percent-normalized',
+  
+  -- Memory metrics
+  'sys.rss', 'sys.go.allocbytes',
+  
+  -- Disk I/O metrics
+  'sys.host.disk.read.count', 'sys.host.disk.write.count',
+  
+  -- Other system metrics
+  'sys.uptime', 'sys.fd.open', 'sys.goroutines'
+);
+
+-- List all system metrics (for exploration)
+SELECT name FROM kwdb_internal.node_metrics WHERE name LIKE 'sys.%' ORDER BY name;
+```
+
+## Important Notes
+
+- Always specify full table names with database_name prefix (e.g., db_relation.customers)
+- Use BIGINT for foreign keys referencing IDs generated by SERIAL
+- System metrics are available in kwdb_internal.node_metrics
+- For table size and creation time, use kwdb_internal.ranges and kwdb_internal.tables
