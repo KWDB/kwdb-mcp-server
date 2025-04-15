@@ -179,8 +179,8 @@ MCP Prompts 以 Markdown 文件的形式存储在 `pkg/prompts/docs/` 目录。�
 1. 克隆仓库。
 
     ```shell
-    git clone https://gitee.com/kwdb/mcp-kwdb-server-go.git
-    cd mcp-kwdb-server-go
+    git clone https://gitee.com/kwdb/kwdb-mcp-server
+    cd kwdb-mcp-server
     ```
 
 2. 安装依赖。

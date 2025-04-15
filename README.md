@@ -188,8 +188,8 @@ To modify MCP Prompts, follow these steps:
 1. Clone the repository.
 
     ```shell
-    git clone https://gitee.com/kwdb/mcp-kwdb-server-go.git
-    cd mcp-kwdb-server-go
+    git clone https://gitee.com/kwdb/kwdb-mcp-server
+    cd kwdb-mcp-server
     ```
 
 2. Install dependencies.
