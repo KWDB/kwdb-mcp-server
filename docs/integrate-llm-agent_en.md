@@ -96,7 +96,7 @@ flowchart LR
         ```json
         "mcpServers": {
           "kwdb-server-sse": {
-            "url": "http://localhost:8080",
+            "url": "http://localhost:8080/sse",
             "disabled": false,
             "autoApprove": []
           }
@@ -104,7 +104,7 @@ flowchart LR
         ```
 
         Parameters:
-        - `url`: the IP address of the KWDB MCP Server. By default, it is set to `http://localhost:8080`.
+        - `url`: The service address of KWDB MCP Server with `/sse` path appended. The default value is `http://localhost:8080/sse`.
 
 3. Select the **Installed** tab and click the **Restart** button next to the KWDB MCP server you would like to restart, or click **Restart Server** at the bottom of that pane.
 

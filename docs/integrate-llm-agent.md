@@ -95,7 +95,7 @@ flowchart LR
         ```json
         "mcpServers": {
           "kwdb-server-sse": {
-            "url": "http://localhost:8080",
+            "url": "http://localhost:8080/sse",
             "disabled": false,
             "autoApprove": []
           }
@@ -103,7 +103,7 @@ flowchart LR
         ```
 
         参数说明：
-        - `url`：KWDB MCP Server 的 IP 地址，默认为 `http://localhost:8080`。
+        - `url`：KWDB MCP Server 的服务地址，需要拼接 `/sse` 路径。默认值为 `http://localhost:8080/sse`。
 
 3. 选择 **Installed** 页签，单击 KWDB MCP Server 旁边的重启按钮，或者单击页面底部的 **Restart Server**。
 
@@ -111,7 +111,7 @@ flowchart LR
 
 以下示例假设已经创建一个名为 `lkyv_shr_cheliang_gps` 的表并写入相关数据。
 
-在 Cline 页面，用户输入一个问题：“目前有多少个异常车辆”。大模型将其转化为可执行的 SQL 语句：
+在 Cline 页面，用户输入一个问题："目前有多少个异常车辆"。大模型将其转化为可执行的 SQL 语句：
 
 ```sql
 SELECT COUNT(DISTINCT vehicle_name) AS abnormal_vehicle_count FROM lkyv_shr_cheliang_gps WHERE status IN ('warning', 'error') LIMIT 20;
