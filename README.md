@@ -208,6 +208,8 @@ If you succeed, the application adopts the following structure.
 
 ```plain
 mcp-kwdb-server-go/
+├── bin/
+│   └── kwdb-mcp-server      # Binary executable file
 ├── cmd/
 │   └── kwdb-mcp-server/
 │       └── main.go           # The main application
@@ -232,8 +234,10 @@ mcp-kwdb-server-go/
 │   │   └── resources.go      # MCP Resources
 │   ├── server/
 │   │   └── server.go         # KWDB MCP Server configurations
-│   └── tools/
-│       └── tools.go          # MCP Tools
+│   ├── tools/
+│   │   └── tools.go          # MCP Tools
+│   └── version/
+│       └── version.go        # Version information
 ├── Makefile                  # Commands for building and running the KWDB MCP Server
 └── README.md                 # README file
 ```

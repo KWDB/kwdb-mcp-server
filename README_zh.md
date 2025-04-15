@@ -199,6 +199,8 @@ MCP Prompts 以 Markdown 文件的形式存储在 `pkg/prompts/docs/` 目录。�
 
 ```plain
 mcp-kwdb-server-go/
+├── bin/
+│   └── kwdb-mcp-server      # 二进制可执行文件
 ├── cmd/
 │   └── kwdb-mcp-server/
 │       └── main.go           # 主应用入口点
@@ -223,8 +225,10 @@ mcp-kwdb-server-go/
 │   │   └── resources.go      # MCP 资源
 │   ├── server/
 │   │   └── server.go         # 服务器设置
-│   └── tools/
-│       └── tools.go          # MCP 工具
+│   ├── tools/
+│   │   └── tools.go          # MCP 工具
+│   └── version/
+│       └── version.go        # 版本信息
 ├── Makefile                  # 构建和运行命令
 └── README.md                 # 本文件
 ```
