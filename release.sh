@@ -10,6 +10,7 @@ mkdir -p temp
 PLATFORMS=(
     "windows:amd64:.exe"
     "darwin:amd64:"
+    "darwin:arm64:"
     "linux:amd64:"
 )
 
