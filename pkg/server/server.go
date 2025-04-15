@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"log"
 
-	"gitee.com/kwdb/mcp-kwdb-server-go/pkg/db"
-	"gitee.com/kwdb/mcp-kwdb-server-go/pkg/prompts"
-	"gitee.com/kwdb/mcp-kwdb-server-go/pkg/resources"
-	"gitee.com/kwdb/mcp-kwdb-server-go/pkg/tools"
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/prompts"
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/resources"
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/tools"
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/version"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -21,7 +22,7 @@ func CreateServer(connectionString string) (*server.MCPServer, error) {
 	// Create MCP server with capabilities
 	s := server.NewMCPServer(
 		"KWDB (KaiwuDB) MCP Server",
-		"1.0.0",
+		version.Version[1:],
 		server.WithResourceCapabilities(true, true),
 		server.WithPromptCapabilities(true),
 		server.WithToolCapabilities(true),

@@ -12,6 +12,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+var connectionString string
+
 func TestMCPServer(t *testing.T) {
 	// Skip if running in CI environment
 	if os.Getenv("CI") == "true" {
@@ -31,8 +33,7 @@ func TestMCPServer(t *testing.T) {
 	}{}
 
 	// Create KWDB MCP client
-	serverPath := "/usr/local/bin/kwdb-mcp-server"
-	connectionString := "postgresql://kwdb:Kaiwudb%40123@localhost:26257/db_shig"
+	serverPath := "./bin/kwdb-mcp-server"
 
 	c, err := client.NewStdioMCPClient(
 		serverPath,
@@ -382,6 +383,13 @@ func containsTool(tools []mcp.Tool, name string) bool {
 
 // Helper function to run the test with proper timeout
 func TestMain(m *testing.M) {
+	// Get connection string from environment variable
+	connectionString = os.Getenv("CONNECTION_STRING")
+	if connectionString == "" {
+		// Fallback to default connection string if not provided
+		connectionString = "postgresql://kwdb:Kaiwudb%40123@localhost:26257/db_shig"
+	}
+
 	// 使用更长的全局超时（3分钟）
 	timeout := time.After(3 * time.Minute)
 	done := make(chan bool)

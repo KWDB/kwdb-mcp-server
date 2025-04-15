@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"gitee.com/kwdb/mcp-kwdb-server-go/pkg/db"
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )

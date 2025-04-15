@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"gitee.com/kwdb/mcp-kwdb-server-go/pkg/server"
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/server"
 )
 
 func main() {

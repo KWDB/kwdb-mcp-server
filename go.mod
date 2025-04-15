@@ -1,4 +1,4 @@
-module gitee.com/kwdb/mcp-kwdb-server-go
+module gitee.com/kwdb/kwdb-mcp-server
 
 go 1.23
 

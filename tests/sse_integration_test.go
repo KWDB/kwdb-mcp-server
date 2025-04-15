@@ -13,10 +13,17 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-func TestSSEMCPServer(t *testing.T) {
+func TestSSEServer(t *testing.T) {
 	// Skip if running in CI environment
 	if os.Getenv("CI") == "true" {
 		t.Skip("Skipping SSE integration test in CI environment")
+	}
+
+	// Get base URL from environment variable
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		// Fallback to default base URL if not provided
+		baseURL = "http://localhost:8082"
 	}
 
 	// 添加测试结果计数器
@@ -32,7 +39,6 @@ func TestSSEMCPServer(t *testing.T) {
 	}{}
 
 	// Create KWDB MCP client using SSE transport
-	baseURL := "http://localhost:8082"
 	sseURL := baseURL + "/sse" // SSE端点路径
 	t.Logf("Connecting to SSE server at: %s", baseURL)
 	t.Logf("Using SSE endpoint: %s", sseURL)

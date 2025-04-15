@@ -29,10 +29,10 @@ test:
 
 # Run integration tests
 test-integration:
-	go test -v ./tests/integration_test.go
+	CONNECTION_STRING=$(CONNECTION_STRING) go test -v ./tests/integration_test.go
 
 # Run SSE integration tests
 test-sse-integration:
-	go test -v ./tests/sse_integration_test.go
+	BASE_URL=$(BASE_URL) go test -v ./tests/sse_integration_test.go
 
 

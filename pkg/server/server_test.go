@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"gitee.com/kwdb/mcp-kwdb-server-go/pkg/db"
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
 )
 
 // TestCreateServer tests the server creation process
