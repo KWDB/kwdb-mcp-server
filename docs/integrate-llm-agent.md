@@ -23,7 +23,7 @@ flowchart LR
 
 - 已安装 Visual Studio Code。
 - 已在 Visual Studio Code 安装 Cline 插件。
-- 已下载并解压缩 KWDB MCP Server 安装包。<!--待添加文档链接-->
+- 已[下载](https://gitee.com/kwdb/kwdb-mcp-server/releases)并解压缩 KWDB MCP Server 安装包。
 - 已安装和运行 KWDB 数据库、配置数据库认证方式、创建数据库。有关详细信息，参见 [KWDB 文档官网](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/overview.html)。
 - 已创建具有表级别及以上操作权限的用户。有关详细信息，参见[创建用户](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/bare-metal/user-config-bare-metal.html)。
 

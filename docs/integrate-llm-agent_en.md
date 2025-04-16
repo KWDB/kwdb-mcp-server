@@ -23,7 +23,7 @@ flowchart LR
 
 - Install the Visual Studio Code.
 - Install the Cline extension in the Visual Studio Code.
-- Download and decompress the KWDB MCP Server installation package. <!--To add links-->
+- [Download](https://gitee.com/kwdb/kwdb-mcp-server/releases) and decompress the KWDB MCP Server installation package.
 - Install and start KWDB, configure the authentication method, and create a database. For details, see the [KWDB Documentation Website](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/overview.html).
 - Create a user with appropriate privileges on tables and databases. For details, see [Create Users](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/bare-metal/user-config-bare-metal.html).
 
@@ -123,3 +123,6 @@ The query results are shown as below:
 ![](./asset/llm_agent_result.jpg)
 
 From the query results, you can see that Cline calls the read-query MCP Tools in the KWDB MCP Server to query the table whose `status` column is set with values of `warning` or `error`. Then the LLM Agent configured in Cline summarizes the data.
+
+```
+```

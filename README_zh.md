@@ -308,7 +308,7 @@ KWDB MCP Server 支持以下两种传输机制：
 
 ## 文档
 
-有关 KWDB MCP Server 的相关文档，参见 [KWDB 文档官网]()。<!--待添加文档链接-->
+有关 KWDB MCP Server 的相关文档，参见 [KWDB 文档官网](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/kwdb-mcp-server/connect-kwdb-mcp-server.html)。
 
 ## 未来增强
 

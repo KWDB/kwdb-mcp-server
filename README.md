@@ -317,7 +317,7 @@ For details about how to troubleshoot the KWDB MCP Server, see [Troubleshooting]
 
 ## Documentation
 
-For documentation about the KWDB MCP Server, see the [KWDB Documentation Website](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/deployment/overview.html).
+For documentation about the KWDB MCP Server, see the [KWDB Documentation Website](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/kwdb-mcp-server/connect-kwdb-mcp-server.html).
 
 ## Future Enhancements
 
