@@ -18,27 +18,11 @@
 | Tool | MCP协议提供的工具，Agent可调用的函数或服务 |
 | Resource | MCP协议提供的资源，Agent可查询或订阅的数据 |
 
-
 2\. **设计概述**
 
 2.1 **架构设计**
 
-```mermaid
-flowchart TD
-    A[MCP协议层] --> B[工具调度器]
-    A --> C[资源管理器]
-    B --> D{查询类型判断}
-    D -->|读操作| E[查询执行引擎]
-    D -->|写操作| F[事务处理引擎]
-    E --> G[结果格式化]
-    F --> G
-    G --> H[响应生成]
-    C --> I[数据库元数据]
-    C --> J[表结构信息]
-    H --> A
-    I --> E
-    J --> E
-```
+![](./asset/kwdb_mcp_server_design.png)
 
 2.2 **核心流程**
 - 协议解析：处理MCP标准输入或HTTP SSE请求
@@ -52,17 +36,8 @@ flowchart TD
 3.1 **外部接口**
 
 3.1.1 **MCP Tools 接口**
-```mermaid
-flowchart LR
-    Tool[LLM Agent] -- JSON-RPC --> MCP_Server
-    subgraph MCP_Server
-        direction TB
-        Tool_Dispatcher --> Read_Query
-        Tool_Dispatcher --> Write_Query
-        Read_Query --> DB_Conn[连接池]
-        Write_Query --> DB_Conn
-    end
-```
+
+![](./asset/mcp-tools.png)
 
 3.1.2 **接口定义**
 1. 读查询工具：
@@ -93,19 +68,8 @@ flowchart LR
 | 表结构信息              | kwdb://table/{table_name}       | kwdb://table/user_profile     |
 
 3.3 **Prompt管理架构**
-```mermaid
-flowchart TD
-    A[Prompt Markdown文件] --> B[编译时嵌入]
-    B --> C[运行时缓存]
-    C --> D[LLM交互接口]
-    D --> E[动态内容更新]
-    B -->|版本控制| F[Git仓库]
-    
-    subgraph 核心组件
-        C --> G[Prompt缓存管理器]
-        G --> H[查询处理器]
-    end
-```
+
+![](./asset/prompt-mgmt-architecture.png)
 
 3.4 **Prompt分类规范**
 | 类别              | 用途说明                          | 示例提示词                  |
@@ -130,16 +94,8 @@ flowchart TD
 - 批量查询结果分页
 
 4.2 **安全设计**
-```mermaid
-flowchart TD
-    A[输入SQL] --> B{语法解析}
-    B -->|SELECT| C[允许执行]
-    B -->|SHOW| C
-    B -->|EXPLAIN| C
-    B -->|INSERT/UPDATE/DELETE| D[写操作验证]
-    D --> E[事务日志记录]
-    B -->|其他| F[拒绝执行]
-```
+
+![](./asset/mcp-server-security.png)
 
 4.3 **错误处理规范**
 | 错误代码       | 触发场景                  | 处理策略                     |
@@ -151,10 +107,4 @@ flowchart TD
 
 5\. **部署架构**
 
-```mermaid
-flowchart LR
-    Client[LLM Agent] -->|HTTP SSE| Server1[MCP Server]
-    Client -->|StdIO| Server2[MCP Server]
-    Server1 --> KWDB[KaiwuDB Cluster]
-    Server2 --> KWDB
-```
+![](./asset/integrate-with-llm-agent_en.png)

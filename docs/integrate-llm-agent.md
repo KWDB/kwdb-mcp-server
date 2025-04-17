@@ -11,13 +11,7 @@ KWDB MCP Server 可与任何支持 MCP 协议的 LLM Agent 配合使用。LLM Ag
 >
 > 本节示例使用 [Cline](https://cline.bot)，但类似步骤也适用于其他兼容 MCP 协议的 LLM Agent。有关支持 MCP 协议的 LLM Agent 的详细信息，参见 [MCP 官方文档](https://modelcontextprotocol.io/clients)。
 
-```mermaid
-flowchart LR
-    Client[LLM Agent] -->|HTTP SSE| Server1[MCP Server]
-    Client -->|StdIO| Server2[MCP Server]
-    Server1 --> KWDB[KWDB Cluster]
-    Server2 --> KWDB
-```
+![](./asset/integrate-with-llm-agent_en.png)
 
 ## 前提条件
 
@@ -35,7 +29,7 @@ flowchart LR
 2. 在 Cline 插件的顶部导航栏中，单击 **MCP Servers** 图标。
 3. 选择 **Installed** 页签，然后单击页面底部的 **Configure MCP Servers**。
 
-    ![](./asset/cline_mcp_server_config.PNG)
+    ![](./asset/cline_mcp_server_config.png)
 
 4. 在弹出的页面中，添加并保存 KWDB MCP Server 配置。
 

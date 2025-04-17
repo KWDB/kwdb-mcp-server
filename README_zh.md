@@ -13,22 +13,7 @@ KWDB MCP Server 的核心流程包括以下几个部分：
 - 查询预处理：自动添加 `LIMIT` 语法检查。
 - 结果封装：采用统一 JSON 响应格式。
 
-```mermaid
-flowchart TD
-    A[MCP 协议层] --> B[工具调度器]
-    A --> C[资源管理器]
-    B --> D{查询类型判断}
-    D -->|读操作| E[查询执行引擎]
-    D -->|写操作| F[事务处理引擎]
-    E --> G[结果格式化]
-    F --> G
-    G --> H[响应生成]
-    C --> I[数据库元数据]
-    C --> J[表结构信息]
-    H --> A
-    I --> E
-    J --> E
-```
+![](./docs/asset/kwdb_mcp_server_design.png)
 
 ### 功能特性
 
@@ -55,16 +40,7 @@ KWDB MCP Server 实现以下安全性能。
 - 验证查询结果，确保与预期的操作类型匹配。
 - 输出未授权操作的错误消息。
 
-```mermaid
-flowchart TD
-    A[输入 SQL] --> B{语法解析}
-    B -->|SELECT| C[允许执行]
-    B -->|SHOW| C
-    B -->|EXPLAIN| C
-    B -->|INSERT/UPDATE/DELETE| D[写操作验证]
-    D --> E[事务日志记录]
-    B -->|其他| F[拒绝执行]
-```
+![](./docs/asset/mcp-server-security.png)
 
 ### MCP Resources
 

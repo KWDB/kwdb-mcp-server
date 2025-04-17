@@ -11,13 +11,7 @@ The KWDB MCP Server can work with any LLM Agent that supports the MCP protocol. 
 >
 > This document uses [Cline](https://cline.bot) for an example. But these steps are also suitable for other MCP-compatible LLM Agents. For details about LLM Agents that support the MCP protocol, see the [MCP Documentation Website](https://modelcontextprotocol.io/clients).
 
-```mermaid
-flowchart LR
-    Client[LLM Agent] -->|HTTP SSE| Server1[MCP Server]
-    Client -->|StdIO| Server2[MCP Server]
-    Server1 --> KWDB[KWDB Cluster]
-    Server2 --> KWDB
-```
+![](./asset/integrate-with-llm-agent_en.png)
 
 ## Prerequisites
 
