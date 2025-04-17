@@ -29,7 +29,7 @@ KWDB MCP Server 可与任何支持 MCP 协议的 LLM Agent 配合使用。LLM Ag
 2. 在 Cline 插件的顶部导航栏中，单击 **MCP Servers** 图标。
 3. 选择 **Installed** 页签，然后单击页面底部的 **Configure MCP Servers**。
 
-    ![](./asset/cline_mcp_server_config.png)
+    ![](./asset/cline-mcp-server-config.png)
 
 4. 在弹出的页面中，添加并保存 KWDB MCP Server 配置。
 
