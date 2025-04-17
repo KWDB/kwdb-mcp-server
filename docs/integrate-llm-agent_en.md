@@ -29,7 +29,7 @@ The KWDB MCP Server can work with any LLM Agent that supports the MCP protocol. 
 2. On the top navigation bar of the Cline extension, click the **MCP Servers** icon.
 3. Select the **Installed** tab and then click **Configure MCP Servers** at the bottom of that pane. Cline will open a new settings window.
 
-    ![](./asset/cline_mcp_server_config.png)
+    ![](./asset/cline-mcp-server-config.png)
 
 4. Add and save the KWDB MCP Server configurations.
 
