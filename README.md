@@ -15,22 +15,7 @@ The core process of the KWDB MCP Server consists of the following components:
 - Prepare queries: automatically add the `LIMIT 20` clause for SQL queries without a `LIMIT` clause.
 - Format query results: adopt a consistent JSON format for all API responses.
 
-```mermaid
-flowchart TD
-    A[MCP Protocol Layer] --> B[Tool Scheduler]
-    A --> C[Resource Manager]
-    B --> D{Judge Query Types}
-    D -->|Read Operation| E[Query Engine]
-    D -->|Write Operation| F[Transaction Processing Engine]
-    E --> G[Format Results]
-    F --> G
-    G --> H[Generate Response]
-    C --> I[Database Metadata]
-    C --> J[Table Schema]
-    H --> A
-    I --> E
-    J --> E
-```
+![](./docs/asset/kwdb_mcp_server_design_en.png)
 
 ### Features
 
@@ -57,16 +42,7 @@ The KWDB MCP Server provides the following security measures:
 - Valid queries to ensure that they match the expected operation type.
 - Print clear error messages for unauthorized operations.
 
-```mermaid
-flowchart TD
-    A[SQL Statement] --> B{Parse Syntax}
-    B -->|SELECT| C[Allow]
-    B -->|SHOW| C
-    B -->|EXPLAIN| C
-    B -->|INSERT/UPDATE/DELETE| D[Valid Write Operation]
-    D --> E[Transaction Logs]
-    B -->| Others | F[Refuse]
-```
+![](./docs/asset/mcp-server-security_en.png)
 
 ### MCP Resources
 
