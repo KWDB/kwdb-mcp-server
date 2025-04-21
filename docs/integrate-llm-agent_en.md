@@ -117,6 +117,3 @@ The query results are shown as below:
 ![](./asset/llm_agent_result.jpg)
 
 From the query results, you can see that Cline calls the read-query MCP Tools in the KWDB MCP Server to query the table whose `status` column is set with values of `warning` or `error`. Then the LLM Agent configured in Cline summarizes the data.
-
-```
-```
