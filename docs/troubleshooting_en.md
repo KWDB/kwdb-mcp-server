@@ -15,7 +15,7 @@ If you fail to connect to the KWDB database, troubleshoot the issue in the follo
 - Check whether the KWDB database address in the KWDB MCP Server configuration of the LLM Agent is correct.
 - Check whether the existing `kwdb-mcp-server` process is blocked.
 
-## SSE SSE Mode Specific Issues
+## SSE Mode Issues
 
 | Issue                 | Processing Strategy                                                                                                          |
 |-----------------------|------------------------------------------------------------------------------------------------------------------------------|
