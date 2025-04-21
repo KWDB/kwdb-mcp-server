@@ -57,62 +57,55 @@ func GetTables() ([]string, error) {
 
 // GetTableColumns returns the columns of a table
 func GetTableColumns(tableName string) ([]map[string]interface{}, error) {
-	rows, err := DB.Query(`
-		SELECT column_name, data_type, is_nullable 
-		FROM information_schema.columns 
-		WHERE table_name = $1
-	`, tableName)
+	// Get all column information with single SHOW COLUMNS WITH COMMENT command
+	showColumnsQuery := fmt.Sprintf("SHOW COLUMNS FROM %s WITH COMMENT", tableName)
+	rows, err := DB.Query(showColumnsQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var columns []map[string]interface{}
+	// Get column names to handle all returned fields
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []map[string]interface{}
+
+	// Prepare containers for the returned values
+	values := make([]interface{}, len(columns))
+	valuePtrs := make([]interface{}, len(columns))
+
 	for rows.Next() {
-		var columnName, dataType, isNullable string
-		if err := rows.Scan(&columnName, &dataType, &isNullable); err != nil {
+		// Initialize pointer slice
+		for i := range columns {
+			valuePtrs[i] = &values[i]
+		}
+
+		// Scan row data
+		if err := rows.Scan(valuePtrs...); err != nil {
 			return nil, err
 		}
-		columns = append(columns, map[string]interface{}{
-			"column_name": columnName,
-			"data_type":   dataType,
-			"is_nullable": isNullable,
-		})
-	}
 
-	// Try to get column comments from system.comments table
-	commentsQuery := `
-		SELECT a.attname AS column_name, d.description AS comment
-		FROM pg_catalog.pg_description d
-		JOIN pg_catalog.pg_class c ON c.oid = d.objoid
-		JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
-		WHERE c.relname = $1 AND a.attnum > 0 AND d.objsubid != 0
-	`
-	commentRows, err := DB.Query(commentsQuery, tableName)
-	if err == nil {
-		defer commentRows.Close()
-
-		// Create a map of column comments
-		columnComments := make(map[string]string)
-		for commentRows.Next() {
-			var colName, comment string
-			if err := commentRows.Scan(&colName, &comment); err != nil {
-				continue
-			}
-			columnComments[colName] = comment
-		}
-
-		// Add comments to columns
+		// Create column info map
+		colInfo := make(map[string]interface{})
 		for i, col := range columns {
-			if colName, ok := col["column_name"].(string); ok {
-				if comment, exists := columnComments[colName]; exists && comment != "" {
-					columns[i]["comment"] = comment
-				}
+			val := values[i]
+
+			// Handle different data types
+			switch v := val.(type) {
+			case []byte:
+				colInfo[col] = string(v)
+			default:
+				colInfo[col] = v
 			}
 		}
+
+		result = append(result, colInfo)
 	}
 
-	return columns, nil
+	return result, nil
 }
 
 // ClassifyQuery checks if a query is a read or write operation
