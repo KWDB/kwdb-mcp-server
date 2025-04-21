@@ -80,6 +80,38 @@ func GetTableColumns(tableName string) ([]map[string]interface{}, error) {
 		})
 	}
 
+	// Try to get column comments from system.comments table
+	commentsQuery := `
+		SELECT a.attname AS column_name, d.description AS comment
+		FROM pg_catalog.pg_description d
+		JOIN pg_catalog.pg_class c ON c.oid = d.objoid
+		JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
+		WHERE c.relname = $1 AND a.attnum > 0 AND d.objsubid != 0
+	`
+	commentRows, err := DB.Query(commentsQuery, tableName)
+	if err == nil {
+		defer commentRows.Close()
+
+		// Create a map of column comments
+		columnComments := make(map[string]string)
+		for commentRows.Next() {
+			var colName, comment string
+			if err := commentRows.Scan(&colName, &comment); err != nil {
+				continue
+			}
+			columnComments[colName] = comment
+		}
+
+		// Add comments to columns
+		for i, col := range columns {
+			if colName, ok := col["column_name"].(string); ok {
+				if comment, exists := columnComments[colName]; exists && comment != "" {
+					columns[i]["comment"] = comment
+				}
+			}
+		}
+	}
+
 	return columns, nil
 }
 
