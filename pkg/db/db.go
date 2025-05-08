@@ -127,6 +127,7 @@ func ClassifyQuery(query string) (bool, string) {
 		"TRUNCATE": regexp.MustCompile(`^truncate\s`),
 		"GRANT":    regexp.MustCompile(`^grant\s`),
 		"REVOKE":   regexp.MustCompile(`^revoke\s`),
+		"COMMENT":  regexp.MustCompile(`^comment\s`),
 	}
 
 	// Check if the query matches any write operation pattern
