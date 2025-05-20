@@ -1,4 +1,4 @@
-.PHONY: build run clean test test-integration test-with-sse-server test-sse-debug test-sse-simple test-sse-manual
+.PHONY: build run clean test test-integration test-sse-integration
 
 # Build the application
 build:

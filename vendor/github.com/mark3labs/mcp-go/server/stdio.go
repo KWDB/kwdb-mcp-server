@@ -40,7 +40,7 @@ func WithErrorLogger(logger *log.Logger) StdioOption {
 	}
 }
 
-// WithContextFunc sets a function that will be called to customise the context
+// WithStdioContextFunc sets a function that will be called to customise the context
 // to the server. Note that the stdio server uses the same context for all requests,
 // so this function will only be called once per server instance.
 func WithStdioContextFunc(fn StdioContextFunc) StdioOption {
@@ -51,8 +51,9 @@ func WithStdioContextFunc(fn StdioContextFunc) StdioOption {
 
 // stdioSession is a static client session, since stdio has only one client.
 type stdioSession struct {
-	notifications chan mcp.JSONRPCNotification
-	initialized   atomic.Bool
+	notifications   chan mcp.JSONRPCNotification
+	initialized     atomic.Bool
+	loggingLevel    atomic.Value
 }
 
 func (s *stdioSession) SessionID() string {
@@ -64,6 +65,8 @@ func (s *stdioSession) NotificationChannel() chan<- mcp.JSONRPCNotification {
 }
 
 func (s *stdioSession) Initialize() {
+	// set default logging level
+	s.loggingLevel.Store(mcp.LoggingLevelError)
 	s.initialized.Store(true)
 }
 
@@ -71,7 +74,22 @@ func (s *stdioSession) Initialized() bool {
 	return s.initialized.Load()
 }
 
-var _ ClientSession = (*stdioSession)(nil)
+func(s *stdioSession) SetLogLevel(level mcp.LoggingLevel) {
+	s.loggingLevel.Store(level)
+}
+
+func(s *stdioSession) GetLogLevel() mcp.LoggingLevel {
+	level := s.loggingLevel.Load()
+	if level == nil {
+		return mcp.LoggingLevelError
+	}
+	return level.(mcp.LoggingLevel)
+}
+
+var (
+	_ ClientSession			= (*stdioSession)(nil)
+	_ SessionWithLogging 	= (*stdioSession)(nil)
+)
 
 var stdioSessionInstance = stdioSession{
 	notifications: make(chan mcp.JSONRPCNotification, 100),
@@ -158,18 +176,28 @@ func (s *StdioServer) processInputStream(ctx context.Context, reader *bufio.Read
 func (s *StdioServer) readNextLine(ctx context.Context, reader *bufio.Reader) (string, error) {
 	readChan := make(chan string, 1)
 	errChan := make(chan error, 1)
-	defer func() {
-		close(readChan)
-		close(errChan)
-	}()
+	done := make(chan struct{})
+	defer close(done)
 
 	go func() {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			errChan <- err
+		select {
+		case <-done:
+			return
+		default:
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				select {
+				case errChan <- err:
+				case <-done:
+				}
+				return
+			}
+			select {
+			case readChan <- line:
+			case <-done:
+			}
 			return
 		}
-		readChan <- line
 	}()
 
 	select {
@@ -194,7 +222,7 @@ func (s *StdioServer) Listen(
 	if err := s.server.RegisterSession(ctx, &stdioSessionInstance); err != nil {
 		return fmt.Errorf("register session: %w", err)
 	}
-	defer s.server.UnregisterSession(stdioSessionInstance.SessionID())
+	defer s.server.UnregisterSession(ctx, stdioSessionInstance.SessionID())
 	ctx = s.server.WithContext(ctx, &stdioSessionInstance)
 
 	// Add in any custom context.
