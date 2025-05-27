@@ -45,26 +45,7 @@ func registerReadQueryTool(s *server.MCPServer) {
 		// Execute query
 		result, err := db.ExecuteQuery(sql)
 		if err != nil {
-			// Standardized error response
-			errorResponse := map[string]interface{}{
-				"status": "error",
-				"type":   "error_response",
-				"data":   nil,
-				"error": map[string]interface{}{
-					"code":    "SYNTAX_ERROR",
-					"message": fmt.Sprintf("Query error: %v", err),
-					"details": err.Error(),
-					"query":   originalSQL,
-				},
-			}
-
-			// Convert error response to JSON
-			jsonResult, jsonErr := json.MarshalIndent(errorResponse, "", "  ")
-			if jsonErr != nil {
-				return nil, fmt.Errorf("failed to serialize error: %v", jsonErr)
-			}
-
-			return mcp.NewToolResultText(string(jsonResult)), nil
+			return mcp.NewToolResultErrorFromErr("Query error", err), nil
 		}
 
 		// Extract column names (if result is not empty)
@@ -168,26 +149,7 @@ func registerWriteQueryTool(s *server.MCPServer) {
 		// Execute write operation
 		rowsAffected, err := db.ExecuteWriteQuery(sql)
 		if err != nil {
-			// Standardized error response
-			errorResponse := map[string]interface{}{
-				"status": "error",
-				"type":   "error_response",
-				"data":   nil,
-				"error": map[string]interface{}{
-					"code":    "SYNTAX_ERROR",
-					"message": fmt.Sprintf("Query error: %v", err),
-					"details": err.Error(),
-					"query":   sql,
-				},
-			}
-
-			// Convert error response to JSON
-			jsonResult, jsonErr := json.MarshalIndent(errorResponse, "", "  ")
-			if jsonErr != nil {
-				return nil, fmt.Errorf("failed to serialize error: %v", jsonErr)
-			}
-
-			return mcp.NewToolResultText(string(jsonResult)), nil
+			return mcp.NewToolResultErrorFromErr("Query error", err), nil
 		}
 
 		// Standardized response
