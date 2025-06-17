@@ -1,4 +1,4 @@
-.PHONY: build run clean test test-integration test-sse-integration
+.PHONY: build run clean test test-integration test-sse-integration test-http-integration
 
 # Build the application
 build:
@@ -10,7 +10,11 @@ run: build
 
 # Run the application in SSE mode
 run-sse: build
-	./bin/kwdb-mcp-server -t sse -addr $(ADDR) -base-url $(BASE_URL) $(CONNECTION_STRING)
+	./bin/kwdb-mcp-server -t sse -p $(PORT) $(CONNECTION_STRING)
+
+# Run the application in HTTP mode
+run-http: build
+	./bin/kwdb-mcp-server -t http -p $(PORT) $(CONNECTION_STRING)
 
 # Clean build artifacts
 clean:
@@ -35,4 +39,7 @@ test-integration:
 test-sse-integration:
 	BASE_URL=$(BASE_URL) go test -v ./tests/sse_integration_test.go
 
+# Run HTTP integration tests
+test-http-integration:
+	BASE_URL=$(BASE_URL) go test -v ./tests/http_integration_test.go
 

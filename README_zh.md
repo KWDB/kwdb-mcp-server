@@ -174,7 +174,7 @@ MCP Prompts 以 Markdown 文件的形式存储在 `pkg/prompts/docs/` 目录。�
 编译和安装成功后的文件清单如下：
 
 ```plain
-mcp-kwdb-server-go/
+kwdb-mcp-server/
 ├── bin/
 │   └── kwdb-mcp-server      # 二进制可执行文件
 ├── cmd/
@@ -211,11 +211,11 @@ mcp-kwdb-server-go/
 
 ### 启动 KWDB MCP Server
 
-KWDB MCP Server 支持以下两种传输机制：
+KWDB MCP Server 支持以下三种传输机制：
 
-- 标准输入/输出模式：使用标准输入/输出进行通信，适用于本地进程。默认情况下，KWDB MCP Server 采用标准输入/输出模式。
-
-- SSE（Server-Sent Events，服务器发送事件）模式：使用 HTTP POST 进行服务器到客户端的消息传递。
+- **标准输入/输出模式（stdio）**：使用标准输入/输出进行通信，适用于本地进程。默认情况下，KWDB MCP Server 采用标准输入/输出模式。
+- **SSE（Server-Sent Events，服务器发送事件）模式（sse）**：使用 HTTP SSE 协议进行服务器到客户端的消息推送。
+- **HTTP（streamable-http）模式（http）**：推荐模式，基于 MCP 官方 streamable-http 协议，支持标准 HTTP 通信。
 
 #### 标准输入/输出模式
 
@@ -230,9 +230,37 @@ KWDB MCP Server 支持以下两种传输机制：
     ```shell
     CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" make run
     ```
+参数说明：
+- `username`：连接 KWDB 数据库的用户名。
+- `password`：身份验证时使用的密码。
+- `hostname`：KWDB 数据库的 IP 地址。
+- `port`：KWDB 数据库的连接端口。
+- `database_name`：需要访问的 KWDB 数据库名称。
+- `sslmode`：SSL 模式。支持的取值包括 `disable`、`allow`、`prefer`、`require`、`verify-ca` 和 `verify-full`。有关 SSL 模式相关的详细信息，参见 [SSL 模式参数]
+(https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0)。
 
+#### HTTP 模式（推荐）
+
+- 使用 HTTP 模式运行 KWDB MCP Server（监听 8080 端口）：
+
+    ```shell
+    ./bin/kwdb-mcp-server -t http -p 8080 "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
+    ```
+
+- 使用 Makefile 运行 HTTP 模式：
+
+    ```shell
+    CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" PORT=8080 make run-http
+    ```
+
+- HTTP 服务默认监听 `0.0.0.0:<port>`，MCP 端点为 `http://<host>:<port>/mcp`
 参数说明：
 
+- `-t` 或 `--transport`：传输类型，支持 `stdio`、`sse`、`http`。
+  - `stdio`：标准输入/输出模式
+  - `sse`：SSE 模式（即将弃用）
+  - `http`：HTTP 模式（推荐）
+- `-p` 或 `--port`：KWDB MCP Server 的监听端口，默认为 `8080`。
 - `username`：连接 KWDB 数据库的用户名。
 - `password`：身份验证时使用的密码。
 - `hostname`：KWDB 数据库的 IP 地址。
@@ -240,33 +268,33 @@ KWDB MCP Server 支持以下两种传输机制：
 - `database_name`：需要访问的 KWDB 数据库名称。
 - `sslmode`：SSL 模式。支持的取值包括 `disable`、`allow`、`prefer`、`require`、`verify-ca` 和 `verify-full`。有关 SSL 模式相关的详细信息，参见 [SSL 模式参数](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0)。
 
-#### SSE 模式
-
-如需访问部署在其他服务器上的 KWDB 数据库，用户可以在 SSE 模式下运行 KWDB MCP Server。
+#### SSE 模式（即将弃用）
 
 > **说明**
 >
-> 用户需要提供数据库连接字符串作为最后一个参数。
+> SSE 模式将在未来版本中移除，建议尽快切换到 http 模式。
 
-- 使用 PostgreSQL 连接字符串运行 KWDB MCP Server：
-
-    ```shell
-    ./bin/kwdb-mcp-server -t sse -addr ":8080" -base-url "http://localhost:8080" "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
-    ```
-
-- 使用 Makefile 运行 KWDB MCP Server：
+- 使用 SSE 模式运行 KWDB MCP Server（监听 8080 端口）：
 
     ```shell
-    CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" ADDR=":8080" BASE_URL="http://localhost:8080" make run -sse
+    ./bin/kwdb-mcp-server -t sse -p 8080 "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
     ```
+
+- 使用 Makefile 运行 SSE 模式：
+
+    ```shell
+    CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" PORT=8080 make run-sse
+    ```
+
+- SSE 服务默认监听 `0.0.0.0:<port>`，SSE 端点为 `http://<host>:<port>/sse`
 
 参数说明：
 
-- `-t` 或 `-transport`：传输类型，支持设置为 `stdio` 或 `sse`。
+- `-t` 或 `--transport`：传输类型，支持 `stdio`、`sse`、`http`。
   - `stdio`：标准输入/输出模式
-  - `sse`：SSE 模式
-- `-addr` 或 `ADDR`：KWDB MCP Server 的监听端口，默认为 `:8080`。
-- `-base-url` 或 `BASE_URL`：KWDB MCP Server 的 IP 地址，默认为 `http://localhost:8080`。
+  - `sse`：SSE 模式（即将弃用）
+  - `http`：HTTP 模式（推荐）
+- `-p` 或 `--port`：KWDB MCP Server 的监听端口，默认为 `8080`。
 - `username`：连接 KWDB 数据库的用户名。
 - `password`：身份验证时使用的密码。
 - `hostname`：KWDB 数据库的 IP 地址。

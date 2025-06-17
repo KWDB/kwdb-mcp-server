@@ -63,22 +63,34 @@ KWDB MCP Server 可与任何支持 MCP 协议的 LLM Agent 配合使用。LLM Ag
 
 1. 进入 KWDB MCP Server 安装目录，启动 KWDB MCP Server。
 
+- 推荐方式：
+
     ```bash
-    </path/to/bin/kwdb-mcp-server> -t sse -addr ":8080" -base-url "http://localhost:8080" "postgresql://<username>:<password>@<host>:<port>/<database_name>?sslmode=disable"
+    CONNECTION_STRING="postgresql://<username>:<password>@<host>:<port>/<database_name>?sslmode=disable" PORT=8080 make run-sse
     ```
 
-    参数说明：
-    - `-t` 或 `-transport`：传输类型，支持设置为 `stdio` 或 `sse`。
-      - `stdio`：标准输入/输出模式
-      - `sse`：SSE 模式
-    - `-addr`：KWDB MCP Server 的监听端口，默认为 `:8080`。
-    - `-base-url`：KWDB MCP Server 的 IP 地址，默认为 `http://localhost:8080`。
-    - `username`：连接 KWDB 数据库的用户名。
-    - `password`：身份验证时使用的密码。
-    - `hostname`：KWDB 数据库的 IP 地址。
-    - `port`：KWDB 数据库的连接端口。
-    - `database_name`：需要访问的 KWDB 数据库名称。
-    - `sslmode`：SSL 模式。支持的取值包括 `disable`、`allow`、`prefer`、`require`、`verify-ca` 和 `verify-full`。有关 SSL 模式相关的详细信息，参见 [SSL 模式参数](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0)。
+- 传统方式（不推荐）：
+
+    ```bash
+    ./bin/kwdb-mcp-server -t sse -p 8080 "postgresql://<username>:<password>@<host>:<port>/<database_name>?sslmode=disable"
+    ```
+
+> **注意**
+> 
+> SSE 模式即将弃用，建议优先使用 HTTP 模式。
+
+参数说明：
+- `-t` 或 `--transport`：传输类型，支持 `stdio`、`sse`、`http`。
+  - `stdio`：标准输入/输出模式
+  - `sse`：SSE 模式（即将弃用）
+  - `http`：HTTP 模式（推荐）
+- `-p` 或 `--port`：KWDB MCP Server 的监听端口，默认为 `8080`。
+- `username`：连接 KWDB 数据库的用户名。
+- `password`：身份验证时使用的密码。
+- `hostname`：KWDB 数据库的 IP 地址。
+- `port`：KWDB 数据库的连接端口。
+- `database_name`：需要访问的 KWDB 数据库名称。
+- `sslmode`：SSL 模式。支持的取值包括 `disable`、`allow`、`prefer`、`require`、`verify-ca` 和 `verify-full`。有关 SSL 模式相关的详细信息，参见 [SSL 模式参数](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0)。
 
 2. 配置 Cline 连接 KWDB MCP Server。
    1. 在 Visual Studio Code 右侧边栏，单击 Cline 图标。

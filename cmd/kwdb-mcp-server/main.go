@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/server"
@@ -14,13 +15,12 @@ import (
 func main() {
 	// 定义命令行参数
 	var transport string
-	var addr string
-	var baseURL string
+	var port string
 
-	flag.StringVar(&transport, "t", "stdio", "Transport type (stdio or sse)")
-	flag.StringVar(&transport, "transport", "stdio", "Transport type (stdio or sse)")
-	flag.StringVar(&addr, "addr", ":8080", "Address to listen on for SSE mode")
-	flag.StringVar(&baseURL, "base-url", "http://localhost:8080", "Base URL for SSE mode")
+	flag.StringVar(&transport, "t", "stdio", "Transport type (stdio, sse, or http)")
+	flag.StringVar(&transport, "transport", "stdio", "Transport type (stdio, sse, or http)")
+	flag.StringVar(&port, "p", "8080", "Port to listen on for HTTP/SSE mode")
+	flag.StringVar(&port, "port", "8080", "Port to listen on for HTTP/SSE mode")
 
 	// 解析命令行参数
 	flag.Parse()
@@ -31,6 +31,13 @@ func main() {
 		log.Fatalf("Usage: %s [options] <postgresql-connection-string>", os.Args[0])
 	}
 	connectionString := args[0]
+
+	// 检查端口是否合法
+	portNum, err := strconv.Atoi(port)
+	if err != nil || port == "" || port[0] == '-' || portNum < 0 || portNum > 65535 {
+		log.Fatalf("Invalid port: %s (must be 0-65535)", port)
+	}
+	addr := ":" + port
 
 	// 创建服务器
 	s, err := server.CreateServer(connectionString)
@@ -62,8 +69,15 @@ func main() {
 
 	// 根据传输类型启动服务器
 	transport = strings.ToLower(transport)
-	if transport == "sse" {
-		if err := server.ServeSSE(s, addr, baseURL); err != nil {
+	if transport == "http" {
+		listenAddr := "0.0.0.0" + addr
+		if err := server.ServeHTTP(s, listenAddr); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
+	} else if transport == "sse" {
+		log.Printf("[DEPRECATION WARNING] SSE mode is deprecated and will be removed in a future version. Please use http mode instead.")
+		listenAddr := "0.0.0.0" + addr
+		if err := server.ServeSSE(s, listenAddr, ""); err != nil {
 			log.Fatalf("Server error: %v", err)
 		}
 	} else {

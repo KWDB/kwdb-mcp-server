@@ -57,6 +57,13 @@ func ServeSSE(s *server.MCPServer, addr string, baseURL string) error {
 	return sseServer.Start(addr)
 }
 
+// ServeHTTP starts the server using HTTP (streamable-http) mode
+func ServeHTTP(s *server.MCPServer, addr string) error {
+	httpServer := server.NewStreamableHTTPServer(s)
+	log.Printf("HTTP server listening on %s/mcp", addr)
+	return httpServer.Start(addr)
+}
+
 // Cleanup performs cleanup operations
 func Cleanup() {
 	db.Close()
