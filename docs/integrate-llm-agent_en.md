@@ -63,22 +63,34 @@ The KWDB MCP Server can work with any LLM Agent that supports the MCP protocol. 
 
 1. Enter the KWDB MCP Server installation directory and start the KWDB MCP Server.
 
+- Recommended way:
+
     ```bash
-    </path/to/bin/kwdb-mcp-server> -t sse -addr ":8080" -base-url "http://localhost:8080" "postgresql://<username>:<password>@<host>:<port>/<database_name>?sslmode=disable"
+    CONNECTION_STRING="postgresql://<username>:<password>@<host>:<port>/<database_name>?sslmode=disable" PORT=8080 make run-sse
     ```
 
-    Parameters:
-    - `-t` or `-transport`: the transport type, available options are `stdio` or `sse`.
-      - `stdio`: the StdIO mode
-      - `sse`: the SSE mode
-    - `-addr`: the listening port of the KWDB MCP Server. By default, it is set to `:8080`.
-    - `-base-url` : the IP address of the KWDB MCP Server. By default, it is set to `http://localhost:8080`.
-    - `username`: the username used to connect to the KWDB database
-    - `password`: the password for the username
-    - `hostname`: the IP address of the KWDB database
-    - `port`: the port of the KWDB database
-    - `database_name`: the name of the KWDB database
-    - `sslmode`: the SSL mode, available options are `disable`, `allow`, `prefer`, `require`, `verify-ca` and `verify-full`. For details about the SSL mode, see [SSL Mode Parameters](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0).
+- Traditional way (not recommended):
+
+    ```bash
+    ./bin/kwdb-mcp-server -t sse -p 8080 "postgresql://<username>:<password>@<host>:<port>/<database_name>?sslmode=disable"
+    ```
+
+> **Note**
+> 
+> SSE mode is deprecated and will be removed in future releases. Please use HTTP mode if possible.
+
+Parameters:
+- `-t` or `--transport`: Transport type, supports `stdio`, `sse`, `http`.
+  - `stdio`: Standard input/output mode
+  - `sse`: SSE mode (deprecated)
+  - `http`: HTTP mode (recommended)
+- `-p` or `--port`: Listening port for KWDB MCP Server, default is `8080`.
+- `username`: Username for connecting to the KWDB database.
+- `password`: Password for authentication.
+- `hostname`: IP address of the KWDB database.
+- `port`: Port for connecting to the KWDB database.
+- `database_name`: Name of the KWDB database to access.
+- `sslmode`: SSL mode. Supported values: `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full`. For details, see [SSL Mode Parameters](https://www.kaiwudb.com/kaiwudb_docs/#/oss_dev/development/connect-kaiwudb/java/connect-jdbc.html#%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0).
 
 2. Configure the KWDB MCP Server in Cline.
 

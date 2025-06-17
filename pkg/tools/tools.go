@@ -33,7 +33,7 @@ func registerReadQueryTool(s *server.MCPServer) {
 
 	// Add read query handler
 	s.AddTool(readQueryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		sql := request.Params.Arguments["sql"].(string)
+		sql := request.GetString("sql", "")
 		originalSQL := sql
 
 		// Check if the query is a SELECT statement without LIMIT
@@ -144,7 +144,7 @@ func registerWriteQueryTool(s *server.MCPServer) {
 
 	// Add write query handler
 	s.AddTool(writeQueryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		sql := request.Params.Arguments["sql"].(string)
+		sql := request.GetString("sql", "")
 
 		// Execute write operation
 		rowsAffected, err := db.ExecuteWriteQuery(sql)
