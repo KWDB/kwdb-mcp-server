@@ -1,14 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"log"
 	"os"
 	"strings"
 
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/server"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func main() {
@@ -35,21 +33,7 @@ func main() {
 	// 创建服务器
 	s, err := server.CreateServer(connectionString)
 	if err != nil {
-		resp := mcp.JSONRPCError{
-			JSONRPC: mcp.JSONRPC_VERSION,
-			ID:      mcp.NewRequestId(nil),
-			Error: struct {
-				Code    int    `json:"code"`
-				Message string `json:"message"`
-				Data    any    `json:"data,omitempty"`
-			}{
-				Code:    -32603, // INTERNAL_ERROR
-				Message: err.Error(),
-			},
-		}
-		b, _ := json.Marshal(resp)
-		os.Stdout.Write(b)
-		os.Exit(1)
+		log.Fatalf("Failed to create server: %v", err)
 	}
 	defer server.Cleanup()
 
