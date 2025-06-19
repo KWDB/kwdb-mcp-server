@@ -21,15 +21,37 @@ KWDB MCP Server 的核心流程包括以下几个部分：
 - **写入操作**：支持 `INSERT`、`UPDATE`、`DELETE` DML 操作和 `CREATE`、`DROP`、`ALTER` DDL 操作。
 - **数据库信息**：获取数据库信息，包括数据库中所有的表及其架构。
 - **语法指南**：根据提示，访问 KWDB 支持的综合 SQL 语法指南。
-- **标准化 API 响应**：所有 API 响应遵循一致的 JSON 结构。
+- **标准化 API 响应**：提供一致的错误处理机制。
+    - **工具(Tools)错误**：错误信息包装在结果对象中，使用 `isError` 标志。
     ```json
     {
-      "status": "success",  // 或 "error"
-      "type": "query_result",  // 响应类型
-      "data": { ... },  // 响应数据
-      "error": null  // 错误信息，成功时为 null
+      "content": [{"type": "text", "text": "Query error: 错误详情"}],
+      "isError": true
     }
     ```
+    - **资源(Resources)错误**：直接返回 JSON-RPC 错误响应。
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32002,  // RESOURCE_NOT_FOUND: 资源不存在
+        "message": "handler not found for resource URI 'kwdb://table/nonexistent': resource not found"
+      }
+    }
+    ```
+    或者内部处理错误：
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32603,  // INTERNAL_ERROR: 资源处理内部错误
+        "message": "failed to get table schema for 'tablename': database connection error"
+      }
+    }
+    ```
+    - **成功响应**：工具返回结果对象，资源返回内容数组。
 - **自动 LIMIT**：自动为没有 `LIMIT` 子句的 `SELECT` 查询语句添加 `LIMIT 20` 子句， 防止生成大型结果集。
 
 ### 安全性

@@ -62,48 +62,24 @@ func registerKWDBProductInfo(s *server.MCPServer) {
 
 	// Add KWDB product info resource handler
 	s.AddResource(kwdbInfoResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		// 不再检查 URI 是否为空，直接使用固定 URI
-
 		// Get product info from database
 		productInfo, err := db.GetProductInfo()
 		if err != nil {
-			// Return error if product info cannot be retrieved
-			errorResponse := map[string]interface{}{
-				"error":   "Failed to retrieve KWDB product information",
-				"details": err.Error(),
-			}
-			errorJSON, _ := json.Marshal(errorResponse)
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      fixedURI, // 使用固定 URI 而不是请求中的 URI
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to retrieve KWDB product information: %v", err)
 		}
 
 		// Convert to JSON string
 		infoJSON, err := json.MarshalIndent(productInfo, "", "  ")
 		if err != nil {
-			// Return error if marshaling fails
-			errorResponse := map[string]interface{}{
-				"error":   "Failed to marshal KWDB product information",
-				"details": err.Error(),
-			}
-			errorJSON, _ := json.Marshal(errorResponse)
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      fixedURI, // 使用固定 URI
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to marshal KWDB product information: %v", err)
 		}
 
 		// Return product info as JSON
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
-				URI:      fixedURI, // 使用固定 URI
+				URI:      fixedURI,
 				MIMEType: "application/json",
 				Text:     string(infoJSON),
 			},
@@ -156,78 +132,35 @@ func registerDBInfoResourceTemplate(s *server.MCPServer) {
 		// 使用请求 URI 或默认模板 URI
 		uri := request.Params.URI
 		if uri == "" {
-			// 如果请求中 URI 为空，返回模板 URI 无法处理的说明
-			errorResponse := map[string]interface{}{
-				"error": "Cannot process database info template without a specific database name",
-				"usage": "Use URI format: kwdb://db_info/{database_name} with a real database name",
-			}
-			errorJSON, _ := json.Marshal(errorResponse)
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      templateURI,
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			// 如果请求中 URI 为空，返回错误
+			return nil, fmt.Errorf("cannot process database info template without a specific database name")
 		}
 
 		// 使用辅助函数提取数据库名称
 		dbName, err := extractParamFromURI(uri, templateURI, "database_name")
 		if err != nil {
 			// 返回错误如果 URI 格式无效
-			errorResponse := map[string]interface{}{
-				"error": fmt.Sprintf("Invalid URI format: %v. Expected: %s", err, templateURI),
-			}
-			errorJSON, _ := json.Marshal(errorResponse)
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      uri, // 保留客户端提供的 URI
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			return nil, fmt.Errorf("invalid URI format for database info: %v", err)
 		}
 
 		// Get database info
 		dbInfo, err := db.GetDatabaseInfoByName(dbName)
 		if err != nil {
-			// Return error if database info cannot be retrieved
-			errorResponse := map[string]interface{}{
-				"error":   "Failed to retrieve database information",
-				"details": err.Error(),
-			}
-			errorJSON, _ := json.Marshal(errorResponse)
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      uri, // 保留客户端提供的 URI
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to retrieve database information for '%s': %v", dbName, err)
 		}
 
 		// Convert to JSON string
 		dbInfoJSON, err := json.MarshalIndent(dbInfo, "", "  ")
 		if err != nil {
-			// Return error if marshaling fails
-			errorResponse := map[string]interface{}{
-				"error":   "Failed to marshal database information",
-				"details": err.Error(),
-			}
-			errorJSON, _ := json.Marshal(errorResponse)
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      uri, // 保留客户端提供的 URI
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to marshal database information for '%s': %v", dbName, err)
 		}
 
 		// Return database info as JSON
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
-				URI:      uri, // 保留客户端提供的 URI
+				URI:      uri,
 				MIMEType: "application/json",
 				Text:     string(dbInfoJSON),
 			},
@@ -250,48 +183,24 @@ func registerSpecificDBInfoResource(s *server.MCPServer, dbName string) {
 
 	// Add database info resource handler
 	s.AddResource(dbInfoResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		// 直接使用固定 URI，不再检查请求中的 URI
-
 		// Get database info
 		dbInfo, err := db.GetDatabaseInfoByName(dbName)
 		if err != nil {
-			// Return error if database info cannot be retrieved
-			errorResponse := map[string]interface{}{
-				"error":   "Failed to retrieve database information",
-				"details": err.Error(),
-			}
-			errorJSON, _ := json.Marshal(errorResponse)
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      fixedURI, // 使用固定 URI
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to retrieve database information for '%s': %v", dbName, err)
 		}
 
 		// Convert to JSON string
 		dbInfoJSON, err := json.MarshalIndent(dbInfo, "", "  ")
 		if err != nil {
-			// Return error if marshaling fails
-			errorResponse := map[string]interface{}{
-				"error":   "Failed to marshal database information",
-				"details": err.Error(),
-			}
-			errorJSON, _ := json.Marshal(errorResponse)
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      fixedURI, // 使用固定 URI
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to marshal database information for '%s': %v", dbName, err)
 		}
 
 		// Return database info as JSON
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
-				URI:      fixedURI, // 使用固定 URI
+				URI:      fixedURI,
 				MIMEType: "application/json",
 				Text:     string(dbInfoJSON),
 			},
@@ -314,32 +223,11 @@ func registerTableResource(s *server.MCPServer, tableName string) {
 
 	// Add table resource handler
 	s.AddResource(tableResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		// 直接使用固定 URI，不再检查请求中的 URI
-
 		// Get table columns
 		tableInfo, err := db.GetTableColumns(tableName)
 		if err != nil {
-			// Standardized error response
-			errorResponse := map[string]interface{}{
-				"status": "error",
-				"type":   "error_response",
-				"data":   nil,
-				"error": map[string]interface{}{
-					"code":    "RESOURCE_NOT_FOUND",
-					"message": fmt.Sprintf("Failed to get table schema: %v", err),
-					"details": err.Error(),
-					"table":   tableName,
-				},
-			}
-
-			errorJSON, _ := json.MarshalIndent(errorResponse, "", "  ")
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      fixedURI, // 使用固定 URI
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to get table schema for '%s': %v", tableName, err)
 		}
 
 		// Get table metadata including indexes and primary key
@@ -407,32 +295,13 @@ func registerTableResource(s *server.MCPServer, tableName string) {
 		// Convert table schema to JSON
 		schemaJSON, err := json.MarshalIndent(response, "", "  ")
 		if err != nil {
-			// Standardized error response
-			errorResponse := map[string]interface{}{
-				"status": "error",
-				"type":   "error_response",
-				"data":   nil,
-				"error": map[string]interface{}{
-					"code":    "INTERNAL_ERROR",
-					"message": "Failed to serialize table schema",
-					"details": err.Error(),
-					"table":   tableName,
-				},
-			}
-
-			errorJSON, _ := json.MarshalIndent(errorResponse, "", "  ")
-			return []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      fixedURI, // 使用固定 URI
-					MIMEType: "application/json",
-					Text:     string(errorJSON),
-				},
-			}, nil
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to serialize table schema for '%s': %v", tableName, err)
 		}
 
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
-				URI:      fixedURI, // 使用固定 URI
+				URI:      fixedURI,
 				MIMEType: "application/json",
 				Text:     string(schemaJSON),
 			},
