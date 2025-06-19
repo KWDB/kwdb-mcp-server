@@ -23,15 +23,37 @@ The core process of the KWDB MCP Server consists of the following components:
 - **Write Operations**: execute `INSERT`, `UPDATE`, `DELETE`, and `CREATE`, `DROP`, `ALTER` DDL operations.
 - **Database Information**: get information about the database, including tables and their schemas.
 - **Syntax Guide**: access a comprehensive syntax guide for KWDB through Prompts.
-- **Standard API Response**: provide a consistent JSON structure for all API responses.
+- **Standard API Response**: provide consistent error handling mechanisms.
+    - **Tools Error**: error information is wrapped in result objects with `isError` flag.
     ```json
     {
-      "status": "success",  // or "error"
-      "type": "query_result",  // response type
-      "data": { ... },  // response data
-      "error": null  // errors, if successful, it is set to null
+      "content": [{"type": "text", "text": "Query error: error details"}],
+      "isError": true
     }
     ```
+    - **Resources Error**: return standard JSON-RPC error responses directly.
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32002,  // RESOURCE_NOT_FOUND: resource does not exist
+        "message": "handler not found for resource URI 'kwdb://table/nonexistent': resource not found"
+      }
+    }
+    ```
+    Or internal processing errors:
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32603,  // INTERNAL_ERROR: internal resource processing error
+        "message": "failed to get table schema for 'tablename': database connection error"
+      }
+    }
+    ```
+    - **Success Response**: tools return result objects, resources return content arrays.
 - **Automatic LIMIT**: prevent large result sets by automatically adding the `LIMIT 20` clause to `SELECT` queries without a `LIMIT` clause.
 
 ### Security
