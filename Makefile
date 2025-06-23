@@ -32,8 +32,8 @@ test:
 	go test -v ./pkg/db ./pkg/tools ./pkg/server ./pkg/prompts 
 
 # Run integration tests
-test-integration:
-	CONNECTION_STRING=$(CONNECTION_STRING) go test -v ./tests/integration_test.go
+test-stdio-integration:
+	CONNECTION_STRING=$(CONNECTION_STRING) go test -v ./tests/stdio_integration_test.go
 
 # Run SSE integration tests
 test-sse-integration:
