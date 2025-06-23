@@ -33,7 +33,7 @@ func TestMCPServer(t *testing.T) {
 	}{}
 
 	// Create KWDB MCP client
-	serverPath := "./bin/kwdb-mcp-server"
+	serverPath := "../bin/kwdb-mcp-server"
 
 	c, err := client.NewStdioMCPClient(
 		serverPath,

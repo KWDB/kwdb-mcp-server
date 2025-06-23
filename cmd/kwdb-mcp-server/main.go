@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"log"
 	"os"
@@ -82,7 +84,43 @@ func main() {
 		}
 	} else {
 		if err := server.ServeStdio(s); err != nil {
-			log.Fatalf("Server error: %v", err)
+			// 统一处理正常关闭情况
+			if isNormalShutdown(err) {
+				log.Printf("Server stopped: %v", err)
+				os.Exit(0)
+			} else {
+				log.Fatalf("Server error: %v", err)
+			}
 		}
 	}
+}
+
+// isNormalShutdown 检查是否为正常的关闭情况
+func isNormalShutdown(err error) bool {
+	if err == nil {
+		return true
+	}
+
+	// 检查是否为context canceled
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	errMsg := err.Error()
+	// 常见的正常关闭错误信息
+	normalErrors := []string{
+		"EOF",
+		"io: read/write on closed pipe",
+		"use of closed network connection",
+		"connection reset by peer",
+		"broken pipe",
+	}
+
+	for _, normalErr := range normalErrors {
+		if strings.Contains(errMsg, normalErr) {
+			return true
+		}
+	}
+
+	return false
 }
