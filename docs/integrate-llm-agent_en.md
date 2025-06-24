@@ -63,13 +63,6 @@ The KWDB MCP Server can work with any LLM Agent that supports the MCP protocol. 
 
 1. Enter the KWDB MCP Server installation directory and start the KWDB MCP Server.
 
-- Recommended way:
-
-    ```bash
-    CONNECTION_STRING="postgresql://<username>:<password>@<host>:<port>/<database_name>?sslmode=disable" PORT=8080 make run-sse
-    ```
-
-- Traditional way (not recommended):
 
     ```bash
     ./bin/kwdb-mcp-server -t sse -p 8080 "postgresql://<username>:<password>@<host>:<port>/<database_name>?sslmode=disable"
