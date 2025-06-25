@@ -46,6 +46,7 @@ func main() {
 	if err != nil {
 		transport = strings.ToLower(transport)
 		if transport == "stdio" {
+			log.Printf("Failed to create server: %v", err)
 			resp := mcp.JSONRPCError{
 				JSONRPC: mcp.JSONRPC_VERSION,
 				ID:      mcp.NewRequestId(nil),
