@@ -358,3 +358,7 @@ This project is licensed under the MIT License.
 
 - [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) - MCP Go server framework
 - [lib/pq](https://github.com/lib/pq) - PostgreSQL Go driver
+
+## Other
+
+kwdb-mcp-server is indexed and certified by [MCP Review](https://mcphub.com/mcp-servers/kwdb/kwdb-mcp-server)
