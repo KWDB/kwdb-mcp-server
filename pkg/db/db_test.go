@@ -1,6 +1,8 @@
 package db
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 )
@@ -14,20 +16,31 @@ func TestInitDB(t *testing.T) {
 	}
 	defer Close()
 
-	// Verify connection is working
-	if DB == nil {
-		t.Fatal("DB is nil after successful initialization")
+	// Verify connection pool is initialized
+	poolMgr := GetPoolManager()
+	if !poolMgr.IsInitialized() {
+		t.Fatal("Connection pool not initialized after successful initialization")
 	}
 
-	err = DB.Ping()
+	err = poolMgr.ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		return db.Ping()
+	})
 	if err != nil {
 		t.Fatalf("DB ping failed after initialization: %v", err)
 	}
 
-	// Test with invalid connection string
+	// Test with invalid connection string - should succeed in initialization but fail on actual use
 	err = InitDB("postgresql://invalid:invalid@localhost:26257/nonexistent")
+	if err != nil {
+		t.Fatalf("InitDB should succeed with invalid connection string (lazy loading): %v", err)
+	}
+
+	// But should fail when actually trying to use the connection
+	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		return db.Ping()
+	})
 	if err == nil {
-		t.Fatal("InitDB should fail with invalid connection string")
+		t.Fatal("Connection should fail with invalid connection string when actually used")
 	}
 }
 
@@ -141,21 +154,27 @@ func TestGetTableColumns(t *testing.T) {
 	defer Close()
 
 	// Create a test table
-	_, err = DB.Exec(`
-		CREATE TABLE test_columns (
-		k_timestamp TIMESTAMP NOT NULL,
-		temperature FLOAT NOT NULL,
-		humidity FLOAT,
-		pressure FLOAT
-		) TAGS (
-			id INT NOT NULL,
-			name VARCHAR(30) NOT NULL
-		) PRIMARY TAGS (id);
-	`)
+	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		_, err := db.Exec(`
+			CREATE TABLE test_columns (
+			k_timestamp TIMESTAMP NOT NULL,
+			temperature FLOAT NOT NULL,
+			humidity FLOAT,
+			pressure FLOAT
+			) TAGS (
+				id INT NOT NULL,
+				name VARCHAR(30) NOT NULL
+			) PRIMARY TAGS (id);
+		`)
+		return err
+	})
 	if err != nil {
 		t.Fatalf("Failed to create test table: %v", err)
 	}
-	defer DB.Exec("DROP TABLE IF EXISTS test_columns")
+	defer GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		_, err := db.Exec("DROP TABLE IF EXISTS test_columns")
+		return err
+	})
 
 	// Test
 	columns, err := GetTableColumns("test_columns")
@@ -201,11 +220,9 @@ func TestClose(t *testing.T) {
 	// Test
 	Close()
 
-	// Verify
-	if DB != nil {
-		err = DB.Ping()
-		if err == nil {
-			t.Fatal("DB connection still active after Close()")
-		}
+	// Verify connection pool is closed
+	poolMgr := GetPoolManager()
+	if poolMgr.IsInitialized() {
+		t.Fatal("Connection pool still initialized after Close()")
 	}
 }

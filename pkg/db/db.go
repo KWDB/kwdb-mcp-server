@@ -1,111 +1,115 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
-// DB is the database connection
-var DB *sql.DB
-
-// InitDB initializes the database connection
+// InitDB initializes database connection pool
 func InitDB(connectionString string) error {
-	var err error
-	DB, err = sql.Open("postgres", connectionString)
-	if err != nil {
-		return err
-	}
-
-	// Test connection
-	err = DB.Ping()
-	if err != nil {
-		return err
-	}
-
-	log.Println("Successfully connected to the database")
-	return nil
+	poolMgr := GetPoolManager()
+	return poolMgr.InitializePool(connectionString)
 }
 
-// GetTables returns a list of all tables in the database
+// GetTables retrieves all table names
 func GetTables() ([]string, error) {
-	rows, err := DB.Query(`
-		SELECT table_name 
-		FROM information_schema.tables 
-		WHERE table_schema = 'public'
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			return nil, err
-		}
-		tables = append(tables, tableName)
-	}
-
-	return tables, nil
+	return GetTablesWithContext(context.Background())
 }
 
-// GetTableColumns returns the columns of a table
+// GetTablesWithContext retrieves table names with context
+func GetTablesWithContext(ctx context.Context) ([]string, error) {
+	var tables []string
+
+	poolMgr := GetPoolManager()
+	err := poolMgr.ExecuteWithConnection(ctx, func(db *sql.DB) error {
+		rows, err := db.QueryContext(ctx, `
+			SELECT table_name 
+			FROM information_schema.tables 
+			WHERE table_schema = 'public'
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to query tables: %v", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var tableName string
+			if err := rows.Scan(&tableName); err != nil {
+				return fmt.Errorf("failed to scan table name: %v", err)
+			}
+			tables = append(tables, tableName)
+		}
+
+		return rows.Err()
+	})
+
+	return tables, err
+}
+
+// GetTableColumns retrieves table structure
 func GetTableColumns(tableName string) ([]map[string]interface{}, error) {
-	// Get all column information with single SHOW COLUMNS WITH COMMENT command
-	showColumnsQuery := fmt.Sprintf("SHOW COLUMNS FROM %s WITH COMMENT", tableName)
-	rows, err := DB.Query(showColumnsQuery)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+	return GetTableColumnsWithContext(context.Background(), tableName)
+}
 
-	// Get column names to handle all returned fields
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-
+// GetTableColumnsWithContext retrieves table structure with context
+func GetTableColumnsWithContext(ctx context.Context, tableName string) ([]map[string]interface{}, error) {
 	var result []map[string]interface{}
 
-	// Prepare containers for the returned values
-	values := make([]interface{}, len(columns))
-	valuePtrs := make([]interface{}, len(columns))
+	poolMgr := GetPoolManager()
+	err := poolMgr.ExecuteWithConnection(ctx, func(db *sql.DB) error {
+		showColumnsQuery := fmt.Sprintf("SHOW COLUMNS FROM %s WITH COMMENT", tableName)
+		rows, err := db.QueryContext(ctx, showColumnsQuery)
+		if err != nil {
+			return fmt.Errorf("failed to get table columns: %v", err)
+		}
+		defer rows.Close()
 
-	for rows.Next() {
-		// Initialize pointer slice
-		for i := range columns {
-			valuePtrs[i] = &values[i]
+		// 获取列名
+		columns, err := rows.Columns()
+		if err != nil {
+			return fmt.Errorf("failed to get column names: %v", err)
 		}
 
-		// Scan row data
-		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, err
-		}
+		// 处理结果
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
 
-		// Create column info map
-		colInfo := make(map[string]interface{})
-		for i, col := range columns {
-			val := values[i]
-
-			// Handle different data types
-			switch v := val.(type) {
-			case []byte:
-				colInfo[col] = string(v)
-			default:
-				colInfo[col] = v
+		for rows.Next() {
+			// 初始化指针数组
+			for i := range columns {
+				valuePtrs[i] = &values[i]
 			}
+
+			// 扫描行数据
+			if err := rows.Scan(valuePtrs...); err != nil {
+				return fmt.Errorf("failed to scan column info: %v", err)
+			}
+
+			// 创建列信息映射
+			colInfo := make(map[string]interface{})
+			for i, col := range columns {
+				val := values[i]
+				// 处理不同数据类型
+				switch v := val.(type) {
+				case []byte:
+					colInfo[col] = string(v)
+				default:
+					colInfo[col] = v
+				}
+			}
+
+			result = append(result, colInfo)
 		}
 
-		result = append(result, colInfo)
-	}
+		return rows.Err()
+	})
 
-	return result, nil
+	return result, err
 }
 
 // ClassifyQuery checks if a query is a read or write operation
@@ -141,89 +145,119 @@ func ClassifyQuery(query string) (bool, string) {
 	return false, ""
 }
 
-// ExecuteQuery executes a read-only SQL query
+// ExecuteQuery executes read-only queries using connection pool
 func ExecuteQuery(query string) ([]map[string]interface{}, error) {
-	// Check if it's a write operation
+	return ExecuteQueryWithContext(context.Background(), query)
+}
+
+// ExecuteQueryWithContext executes queries with context
+func ExecuteQueryWithContext(ctx context.Context, query string) ([]map[string]interface{}, error) {
+	// 检查查询类型
 	isWrite, opName := ClassifyQuery(query)
 	if isWrite {
 		return nil, fmt.Errorf("write operation not allowed in read-query: %s", opName)
 	}
 
-	rows, err := DB.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	// Get column names
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-
-	// Prepare result set
 	var result []map[string]interface{}
-	values := make([]interface{}, len(columns))
-	valuePtrs := make([]interface{}, len(columns))
 
-	for rows.Next() {
-		// Initialize pointer slice
-		for i := range columns {
-			valuePtrs[i] = &values[i]
+	poolMgr := GetPoolManager()
+	err := poolMgr.ExecuteWithConnection(ctx, func(db *sql.DB) error {
+		rows, err := db.QueryContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("query execution failed: %v", err)
+		}
+		defer rows.Close()
+
+		// 获取列名
+		columns, err := rows.Columns()
+		if err != nil {
+			return fmt.Errorf("failed to get column names: %v", err)
 		}
 
-		// Scan row data
-		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, err
-		}
+		// 处理结果集
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
 
-		// Create row map
-		row := make(map[string]interface{})
-		for i, col := range columns {
-			val := values[i]
-
-			// Handle different data types
-			switch v := val.(type) {
-			case []byte:
-				row[col] = string(v)
-			default:
-				row[col] = v
+		for rows.Next() {
+			// 初始化指针数组
+			for i := range columns {
+				valuePtrs[i] = &values[i]
 			}
+
+			// 扫描行数据
+			if err := rows.Scan(valuePtrs...); err != nil {
+				return fmt.Errorf("failed to scan row: %v", err)
+			}
+
+			// 创建行映射
+			row := make(map[string]interface{})
+			for i, col := range columns {
+				val := values[i]
+				// 处理不同数据类型
+				switch v := val.(type) {
+				case []byte:
+					row[col] = string(v)
+				default:
+					row[col] = v
+				}
+			}
+			result = append(result, row)
 		}
-		result = append(result, row)
+
+		return rows.Err()
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	return result, nil
 }
 
-// ExecuteWriteQuery executes a write operation (DML or DDL)
+// ExecuteWriteQuery executes write operations using connection pool
 func ExecuteWriteQuery(query string) (int64, error) {
-	// Check if it's a write operation
+	return ExecuteWriteQueryWithContext(context.Background(), query)
+}
+
+// ExecuteWriteQueryWithContext executes write operations with context
+func ExecuteWriteQueryWithContext(ctx context.Context, query string) (int64, error) {
+	// 检查查询类型
 	isWrite, _ := ClassifyQuery(query)
 	if !isWrite {
 		return 0, fmt.Errorf("not a write operation: expected INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc")
 	}
 
-	// Execute write operation
-	result, err := DB.Exec(query)
-	if err != nil {
-		return 0, err
-	}
+	var rowsAffected int64
 
-	// Get affected rows
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
+	poolMgr := GetPoolManager()
+	err := poolMgr.ExecuteWithConnection(ctx, func(db *sql.DB) error {
+		result, err := db.ExecContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("write operation failed: %v", err)
+		}
 
-	return rowsAffected, nil
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get affected rows: %v", err)
+		}
+
+		rowsAffected = affected
+		return nil
+	})
+
+	return rowsAffected, err
 }
 
-// Close closes the database connection
+// Close closes the connection pool
 func Close() {
-	if DB != nil {
-		DB.Close()
-	}
+	poolMgr := GetPoolManager()
+	poolMgr.Close()
+}
+
+// GetConnectionStats returns connection pool statistics
+func GetConnectionStats() sql.DBStats {
+	poolMgr := GetPoolManager()
+	return poolMgr.GetStats()
 }
 
 // DatabaseInfo represents information about a database
@@ -239,9 +273,15 @@ type DatabaseInfo struct {
 func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 	// Query database version
 	var version string
-	err := DB.QueryRow("SELECT version()").Scan(&version)
+	err := GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		err := db.QueryRow("SELECT version()").Scan(&version)
+		if err != nil {
+			return fmt.Errorf("failed to get database version: %v", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return DatabaseInfo{}, fmt.Errorf("failed to get database version: %v", err)
+		return DatabaseInfo{}, err
 	}
 
 	// Query database engine type and comment using SHOW DATABASES
@@ -250,13 +290,17 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 
 	// Use SHOW DATABASES to get engine type
 	showDBQuery := `SHOW DATABASES`
-	rows, err := DB.Query(showDBQuery)
-	if err != nil {
-		// If error, set default values but return the database name as provided
-		engineType = "KaiwuDB"
-		// Log the error but continue
-		fmt.Printf("Warning: Failed to execute SHOW DATABASES: %v\n", err)
-	} else {
+	var showDBErr error
+	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		rows, err := db.Query(showDBQuery)
+		if err != nil {
+			showDBErr = err
+			// If error, set default values but return the database name as provided
+			engineType = "KaiwuDB"
+			// Log the error but continue
+			fmt.Printf("Warning: Failed to execute SHOW DATABASES: %v\n", err)
+			return nil // Continue execution even on error
+		}
 		defer rows.Close()
 
 		// Get column names to handle different column orders
@@ -265,9 +309,6 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 			fmt.Printf("Warning: Failed to get column names: %v\n", err)
 			engineType = "KaiwuDB"
 		} else {
-			// Debug column names
-			fmt.Printf("SHOW DATABASES columns: %v\n", columns)
-
 			// Find the index of database_name and engine_type columns
 			dbNameIdx := -1
 			engineTypeIdx := -1
@@ -316,9 +357,6 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 						}
 					}
 
-					// Debug values
-					fmt.Printf("Database: %s, Engine: %s\n", dbNameResult, engineTypeResult)
-
 					if dbNameResult == dbName {
 						engineType = engineTypeResult
 						found = true
@@ -332,6 +370,11 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 				}
 			}
 		}
+		return showDBErr // Return the error from SHOW DATABASES
+	})
+
+	if err != nil {
+		return DatabaseInfo{}, err
 	}
 
 	// Get additional properties
@@ -344,33 +387,62 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 		FROM pg_database 
 		WHERE datname = $1
 	`
-	if err := DB.QueryRow(encodingQuery, dbName).Scan(&encoding); err == nil {
-		properties["encoding"] = encoding
+	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		err := db.QueryRow(encodingQuery, dbName).Scan(&encoding)
+		if err == nil {
+			properties["encoding"] = encoding
+		}
+		return err
+	})
+	if err != nil {
+		fmt.Printf("Warning: Failed to get database encoding: %v\n", err)
 	}
 
 	// Add database owner
-	var owner string
+	var owner sql.NullString
 	ownerQuery := `
 		SELECT pg_catalog.pg_get_userbyid(d.datdba) as owner
 		FROM pg_catalog.pg_database d
 		WHERE d.datname = $1
 	`
-	if err := DB.QueryRow(ownerQuery, dbName).Scan(&owner); err == nil {
-		properties["owner"] = owner
+	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		err := db.QueryRow(ownerQuery, dbName).Scan(&owner)
+		if err == nil {
+			if owner.Valid {
+				properties["owner"] = owner.String
+			} else {
+				properties["owner"] = ""
+			}
+		}
+		return err
+	})
+	if err != nil {
+		fmt.Printf("Warning: Failed to get database owner: %v\n", err)
 	}
 
 	// Add database creation time information
-	var creationTime string
+	var creationTime sql.NullString
 	timeQuery := `
 		SELECT MIN(mod_time) as creation_time
 		FROM kwdb_internal.tables
 		WHERE database_name = $1
 	`
-	if err := DB.QueryRow(timeQuery, dbName).Scan(&creationTime); err == nil {
-		properties["creation_time"] = creationTime
-	} else {
-		// Fallback to empty value if query fails
-		properties["creation_time"] = ""
+	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		err := db.QueryRow(timeQuery, dbName).Scan(&creationTime)
+		if err == nil {
+			if creationTime.Valid {
+				properties["creation_time"] = creationTime.String
+			} else {
+				properties["creation_time"] = ""
+			}
+		} else {
+			// Fallback to empty value if query fails
+			properties["creation_time"] = ""
+		}
+		return err
+	})
+	if err != nil {
+		fmt.Printf("Warning: Failed to get database creation time: %v\n", err)
 	}
 
 	// Return database info
@@ -387,9 +459,15 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 func GetTableExampleQueries(tableName string) (map[string][]string, error) {
 	// Verify table exists
 	var exists bool
-	err := DB.QueryRow("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)", tableName).Scan(&exists)
+	err := GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		err := db.QueryRow("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)", tableName).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check if table exists: %v", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to check if table exists: %v", err)
+		return nil, err
 	}
 	if !exists {
 		return nil, fmt.Errorf("table %s does not exist", tableName)
@@ -592,45 +670,50 @@ func GetTablesForDatabase(databaseName string) ([]string, error) {
 		ORDER BY table_name
 	`
 
-	rows, err := DB.Query(query, databaseName)
-	if err != nil {
-		// If the first approach fails, try an alternative approach
-		fmt.Printf("Warning: First approach to get tables for database %s failed: %v\n", databaseName, err)
-
-		// Second approach: Try to use pg_tables
-		query = `
-			SELECT tablename 
-			FROM pg_catalog.pg_tables 
-			WHERE schemaname = 'public'
-			ORDER BY tablename
-		`
-
-		// If we're querying the current database, we can use this query directly
-		if databaseName == getCurrentDatabase() {
-			rows, err = DB.Query(query)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get tables for database %s: %v", databaseName, err)
-			}
-		} else {
-			// For other databases, we might want to
-			// create a temporary connection to the target database
-			return []string{}, fmt.Errorf("cannot list tables for database %s: not connected to this database", databaseName)
-		}
-	}
-
-	defer rows.Close()
-
 	var tables []string
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			return nil, err
-		}
-		tables = append(tables, tableName)
-	}
+	var err error
+	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		rows, err := db.Query(query, databaseName)
+		if err != nil {
+			// If the first approach fails, try an alternative approach
+			fmt.Printf("Warning: First approach to get tables for database %s failed: %v\n", databaseName, err)
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating table rows: %v", err)
+			// Second approach: Try to use pg_tables
+			query = `
+				SELECT tablename 
+				FROM pg_catalog.pg_tables 
+				WHERE schemaname = 'public'
+				ORDER BY tablename
+			`
+
+			// If we're querying the current database, we can use this query directly
+			if databaseName == getCurrentDatabase() {
+				rows, err = db.Query(query)
+				if err != nil {
+					return fmt.Errorf("failed to get tables for database %s: %v", databaseName, err)
+				}
+			} else {
+				// For other databases, we might want to
+				// create a temporary connection to the target database
+				return fmt.Errorf("cannot list tables for database %s: not connected to this database", databaseName)
+			}
+		}
+
+		defer rows.Close()
+
+		for rows.Next() {
+			var tableName string
+			if err := rows.Scan(&tableName); err != nil {
+				return fmt.Errorf("failed to scan table name: %v", err)
+			}
+			tables = append(tables, tableName)
+		}
+
+		return rows.Err()
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	return tables, nil
@@ -639,9 +722,15 @@ func GetTablesForDatabase(databaseName string) ([]string, error) {
 // getCurrentDatabase returns the name of the current database
 func getCurrentDatabase() string {
 	var dbName string
-	err := DB.QueryRow("SELECT current_database()").Scan(&dbName)
+	err := GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		err := db.QueryRow("SELECT current_database()").Scan(&dbName)
+		if err != nil {
+			fmt.Printf("Warning: Failed to get current database name: %v\n", err)
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		fmt.Printf("Warning: Failed to get current database name: %v\n", err)
 		return ""
 	}
 	return dbName
@@ -655,27 +744,32 @@ func GetCurrentDatabase() string {
 // GetDatabases returns a list of all databases in the KaiwuDB instance
 func GetDatabases() ([]string, error) {
 	// Query to list all databases
-	rows, err := DB.Query(`
-		SELECT datname 
-		FROM pg_database 
-		WHERE datistemplate = false
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list databases: %v", err)
-	}
-	defer rows.Close()
-
 	var databases []string
-	for rows.Next() {
-		var dbName string
-		if err := rows.Scan(&dbName); err != nil {
-			return nil, fmt.Errorf("failed to scan database name: %v", err)
+	var err error
+	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		rows, err := db.Query(`
+			SELECT datname 
+			FROM pg_database 
+			WHERE datistemplate = false
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to list databases: %v", err)
 		}
-		databases = append(databases, dbName)
-	}
+		defer rows.Close()
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating database rows: %v", err)
+		for rows.Next() {
+			var dbName string
+			if err := rows.Scan(&dbName); err != nil {
+				return fmt.Errorf("failed to scan database name: %v", err)
+			}
+			databases = append(databases, dbName)
+		}
+
+		return rows.Err()
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	return databases, nil
@@ -693,9 +787,15 @@ type ProductInfo struct {
 func GetProductInfo() (ProductInfo, error) {
 	// Query database version
 	var versionStr string
-	err := DB.QueryRow("SELECT version()").Scan(&versionStr)
+	err := GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		err := db.QueryRow("SELECT version()").Scan(&versionStr)
+		if err != nil {
+			return fmt.Errorf("failed to get database version: %v", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return ProductInfo{}, fmt.Errorf("failed to get database version: %v", err)
+		return ProductInfo{}, err
 	}
 
 	// Parse version string
@@ -765,150 +865,19 @@ func GetTableMetadata(tableName string) (map[string]interface{}, error) {
 
 	// Get table type and storage engine using SHOW CREATE TABLE
 	var createTableSQL string
-	query := fmt.Sprintf("SHOW CREATE TABLE %s", tableName)
-
-	rows, err := DB.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get CREATE TABLE statement: %v", err)
-	}
-	defer rows.Close()
-
-	// Get column names
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get column names: %v", err)
-	}
-
-	// Find create_statement column index
-	createColumnIndex := -1
-	for i, col := range columns {
-		if strings.ToLower(col) == "create_statement" {
-			createColumnIndex = i
-			break
-		}
-	}
-
-	if createColumnIndex == -1 {
-		return nil, fmt.Errorf("create_statement column not found in SHOW CREATE TABLE result")
-	}
-
-	// Scan row data
-	if rows.Next() {
-		// Initialize values slice for scanning
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
-		for i := range values {
-			valuePtrs[i] = &values[i]
-		}
-
-		// Scan row
-		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, fmt.Errorf("failed to scan SHOW CREATE TABLE row: %v", err)
-		}
-
-		// Extract create statement
-		val := values[createColumnIndex]
-		if byteVal, ok := val.([]byte); ok {
-			createTableSQL = string(byteVal)
-		} else if strVal, ok := val.(string); ok {
-			createTableSQL = strVal
-		} else {
-			return nil, fmt.Errorf("unexpected type for create_statement column")
-		}
-	} else {
-		return nil, fmt.Errorf("no rows returned by SHOW CREATE TABLE %s", tableName)
-	}
-
-	// Determine table type using SHOW TABLES
-	var tableType string
-
-	// 获取所有表的类型信息
-	tableTypeQuery := `SHOW TABLES`
-	rows, err = DB.Query(tableTypeQuery)
-	if err != nil {
-		fmt.Printf("Warning: Failed to get table types from SHOW TABLES: %v\n", err)
-		// 如果无法从SHOW TABLES获取，尝试从CREATE TABLE语句推断
-		if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
-			tableType = "TIME SERIES TABLE"
-		} else {
-			tableType = "BASE TABLE"
-		}
-	} else {
-		defer rows.Close()
-		// 遍历结果找到目标表
-		found := false
-		var currentTable, currentType string
-		for rows.Next() {
-			if err := rows.Scan(&currentTable, &currentType); err != nil {
-				fmt.Printf("Warning: Error scanning table type: %v\n", err)
-				continue
-			}
-			if currentTable == tableName {
-				tableType = currentType
-				found = true
-				break
-			}
-		}
-		if !found {
-			// 如果在SHOW TABLES结果中没找到，使用默认推断
-			if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
-				tableType = "TIME SERIES TABLE"
-			} else {
-				tableType = "BASE TABLE"
-			}
-		}
-	}
-
-	metadata["table_type"] = tableType
-
-	// Extract partition information if available
-	partitionInfo := extractPartitionInfo(createTableSQL)
-	if partitionInfo != nil {
-		metadata["partition_info"] = partitionInfo
-	}
-
-	// Get indexes and primary key
-	indexes, primaryKey, err := GetTableIndexes(tableName, createTableSQL, tableType)
-	if err != nil {
-		fmt.Printf("Warning: Failed to get indexes for table %s: %v\n", tableName, err)
-	} else {
-		metadata["indexes"] = indexes
-		if len(primaryKey) > 0 {
-			metadata["primary_key"] = primaryKey
-		}
-	}
-
-	return metadata, nil
-}
-
-// GetTableIndexes retrieves all indexes including primary key for a table
-func GetTableIndexes(tableName string, createTableSQL string, tableType string) ([]map[string]interface{}, []string, error) {
-	var indexes []map[string]interface{}
-	var primaryKeyColumns []string
 	var err error
-
-	// If we already have the CREATE TABLE statement, use it directly
-	if createTableSQL != "" {
-		indexes, primaryKeyColumns, err = getTableIndexesFromCreateSQL(tableName, createTableSQL, tableType)
-		if err == nil && len(indexes) > 0 {
-			return indexes, primaryKeyColumns, nil
-		}
-	}
-
-	// Otherwise, get CREATE TABLE statement and process
-	if createTableSQL == "" {
-		// Get the create table statement
+	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
 		query := fmt.Sprintf("SHOW CREATE TABLE %s", tableName)
-		rows, err := DB.Query(query)
+		rows, err := db.Query(query)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get CREATE TABLE statement: %v", err)
+			return fmt.Errorf("failed to get CREATE TABLE statement: %v", err)
 		}
 		defer rows.Close()
 
 		// Get column names
 		columns, err := rows.Columns()
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get column names: %v", err)
+			return fmt.Errorf("failed to get column names: %v", err)
 		}
 
 		// Find create_statement column index
@@ -921,7 +890,7 @@ func GetTableIndexes(tableName string, createTableSQL string, tableType string) 
 		}
 
 		if createColumnIndex == -1 {
-			return nil, nil, fmt.Errorf("create_statement column not found in SHOW CREATE TABLE result")
+			return fmt.Errorf("create_statement column not found in SHOW CREATE TABLE result")
 		}
 
 		// Scan row data
@@ -935,7 +904,7 @@ func GetTableIndexes(tableName string, createTableSQL string, tableType string) 
 
 			// Scan row
 			if err := rows.Scan(valuePtrs...); err != nil {
-				return nil, nil, fmt.Errorf("failed to scan SHOW CREATE TABLE row: %v", err)
+				return fmt.Errorf("failed to scan SHOW CREATE TABLE row: %v", err)
 			}
 
 			// Extract create statement
@@ -945,29 +914,185 @@ func GetTableIndexes(tableName string, createTableSQL string, tableType string) 
 			} else if strVal, ok := val.(string); ok {
 				createTableSQL = strVal
 			} else {
-				return nil, nil, fmt.Errorf("unexpected type for create_statement column")
+				return fmt.Errorf("unexpected type for create_statement column")
 			}
 		} else {
-			return nil, nil, fmt.Errorf("no rows returned by SHOW CREATE TABLE %s", tableName)
+			return fmt.Errorf("no rows returned by SHOW CREATE TABLE %s", tableName)
 		}
 
-		// Determine table type if not provided
-		if tableType == "" {
-			if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
-				tableType = "TIME SERIES TABLE"
-			} else {
-				tableType = "BASE TABLE"
+		// Determine table type using SHOW TABLES
+		var tableType string
+
+		// 获取所有表的类型信息
+		tableTypeQuery := `SHOW TABLES`
+		var showTableTypesErr error
+		err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+			rows, err := db.Query(tableTypeQuery)
+			if err != nil {
+				showTableTypesErr = err
+				fmt.Printf("Warning: Failed to get table types from SHOW TABLES: %v\n", err)
+				// 如果无法从SHOW TABLES获取，尝试从CREATE TABLE语句推断
+				if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
+					tableType = "TIME SERIES TABLE"
+				} else {
+					tableType = "BASE TABLE"
+				}
+				return nil // Continue execution even on error
 			}
+			defer rows.Close()
+			// 遍历结果找到目标表
+			found := false
+			var currentTable, currentType string
+			for rows.Next() {
+				if err := rows.Scan(&currentTable, &currentType); err != nil {
+					fmt.Printf("Warning: Error scanning table type: %v\n", err)
+					continue
+				}
+				if currentTable == tableName {
+					tableType = currentType
+					found = true
+					break
+				}
+			}
+			if !found {
+				// 如果在SHOW TABLES结果中没找到，使用默认推断
+				if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
+					tableType = "TIME SERIES TABLE"
+				} else {
+					tableType = "BASE TABLE"
+				}
+			}
+			return showTableTypesErr // Return the error from SHOW TABLES
+		})
+
+		if err != nil {
+			return err
+		}
+
+		metadata["table_type"] = tableType
+
+		// Extract partition information if available
+		partitionInfo := extractPartitionInfo(createTableSQL)
+		if partitionInfo != nil {
+			metadata["partition_info"] = partitionInfo
+		}
+
+		// Get indexes and primary key
+		indexes, primaryKey, err := GetTableIndexes(tableName, createTableSQL, tableType)
+		if err != nil {
+			fmt.Printf("Warning: Failed to get indexes for table %s: %v\n", tableName, err)
+		} else {
+			metadata["indexes"] = indexes
+			if len(primaryKey) > 0 {
+				metadata["primary_key"] = primaryKey
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return metadata, nil
+}
+
+// GetTableIndexes retrieves all indexes including primary key for a table
+func GetTableIndexes(tableName string, createTableSQL string, tableType string) ([]map[string]interface{}, []string, error) {
+	var indexes []map[string]interface{}
+	var primaryKeyColumns []string
+
+	// If we already have the CREATE TABLE statement, use it directly
+	if createTableSQL != "" {
+		var err error
+		indexes, primaryKeyColumns, err = getTableIndexesFromCreateSQL(tableName, createTableSQL, tableType)
+		if err == nil && len(indexes) > 0 {
+			return indexes, primaryKeyColumns, nil
 		}
 	}
 
-	// Process the CREATE TABLE statement
-	indexes, primaryKeyColumns, err = getTableIndexesFromCreateSQL(tableName, createTableSQL, tableType)
-	if err != nil || len(indexes) == 0 {
-		// Fallback to PostgreSQL system tables if the first method fails
-		indexes, primaryKeyColumns, err = getTableIndexesFromSystemTables(tableName)
+	// Otherwise, get CREATE TABLE statement and process
+	if createTableSQL == "" {
+		// Get the create table statement
+		query := fmt.Sprintf("SHOW CREATE TABLE %s", tableName)
+		err := GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+			rows, err := db.Query(query)
+			if err != nil {
+				return fmt.Errorf("failed to get CREATE TABLE statement: %v", err)
+			}
+			defer rows.Close()
+
+			// Get column names
+			columns, err := rows.Columns()
+			if err != nil {
+				return fmt.Errorf("failed to get column names: %v", err)
+			}
+
+			// Find create_statement column index
+			createColumnIndex := -1
+			for i, col := range columns {
+				if strings.ToLower(col) == "create_statement" {
+					createColumnIndex = i
+					break
+				}
+			}
+
+			if createColumnIndex == -1 {
+				return fmt.Errorf("create_statement column not found in SHOW CREATE TABLE result")
+			}
+
+			// Scan row data
+			if rows.Next() {
+				// Initialize values slice for scanning
+				values := make([]interface{}, len(columns))
+				valuePtrs := make([]interface{}, len(columns))
+				for i := range values {
+					valuePtrs[i] = &values[i]
+				}
+
+				// Scan row
+				if err := rows.Scan(valuePtrs...); err != nil {
+					return fmt.Errorf("failed to scan SHOW CREATE TABLE row: %v", err)
+				}
+
+				// Extract create statement
+				val := values[createColumnIndex]
+				if byteVal, ok := val.([]byte); ok {
+					createTableSQL = string(byteVal)
+				} else if strVal, ok := val.(string); ok {
+					createTableSQL = strVal
+				} else {
+					return fmt.Errorf("unexpected type for create_statement column")
+				}
+			} else {
+				return fmt.Errorf("no rows returned by SHOW CREATE TABLE %s", tableName)
+			}
+
+			// Determine table type if not provided
+			if tableType == "" {
+				if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
+					tableType = "TIME SERIES TABLE"
+				} else {
+					tableType = "BASE TABLE"
+				}
+			}
+			return nil
+		})
+
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get indexes using any method: %v", err)
+			return nil, nil, err
+		}
+
+		// Process the CREATE TABLE statement
+		var processErr error
+		indexes, primaryKeyColumns, processErr = getTableIndexesFromCreateSQL(tableName, createTableSQL, tableType)
+		if processErr != nil || len(indexes) == 0 {
+			// Fallback to PostgreSQL system tables if the first method fails
+			indexes, primaryKeyColumns, processErr = getTableIndexesFromSystemTables(tableName)
+			if processErr != nil {
+				return nil, nil, fmt.Errorf("failed to get indexes using any method: %v", processErr)
+			}
 		}
 	}
 
@@ -976,6 +1101,9 @@ func GetTableIndexes(tableName string, createTableSQL string, tableType string) 
 
 // getTableIndexesFromSystemTables retrieves indexes using PostgreSQL system tables
 func getTableIndexesFromSystemTables(tableName string) ([]map[string]interface{}, []string, error) {
+	var indexes []map[string]interface{}
+	var primaryKeyColumns []string
+
 	query := `
 		SELECT
 			i.relname AS index_name,
@@ -994,49 +1122,56 @@ func getTableIndexesFromSystemTables(tableName string) ([]map[string]interface{}
 		ORDER BY
 			i.relname, a.attnum;
 	`
-	rows, err := DB.Query(query, tableName)
+	err := GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+		rows, err := db.Query(query, tableName)
+		if err != nil {
+			return fmt.Errorf("failed to get indexes from system tables: %v", err)
+		}
+		defer rows.Close()
+
+		// Map to group columns by index name
+		indexMap := make(map[string]map[string]interface{})
+
+		for rows.Next() {
+			var indexName, columnName, indexType string
+			var isPrimary, isUnique bool
+
+			if err := rows.Scan(&indexName, &columnName, &isPrimary, &isUnique, &indexType); err != nil {
+				return err
+			}
+
+			// For primary key indexes
+			if isPrimary {
+				primaryKeyColumns = append(primaryKeyColumns, columnName)
+			}
+
+			// Initialize the index in the map if it doesn't exist
+			if _, exists := indexMap[indexName]; !exists {
+				indexMap[indexName] = map[string]interface{}{
+					"name":    indexName,
+					"columns": []string{},
+				}
+				if isUnique {
+					indexMap[indexName]["unique"] = true
+				}
+			}
+
+			// Add column to the columns array for this index
+			columns := indexMap[indexName]["columns"].([]string)
+			indexMap[indexName]["columns"] = append(columns, columnName)
+		}
+
+		// Convert map to array
+		indexes = make([]map[string]interface{}, 0, len(indexMap))
+		for _, idx := range indexMap {
+			indexes = append(indexes, idx)
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get indexes from system tables: %v", err)
-	}
-	defer rows.Close()
-
-	// Map to group columns by index name
-	indexMap := make(map[string]map[string]interface{})
-	primaryKeyColumns := []string{}
-
-	for rows.Next() {
-		var indexName, columnName, indexType string
-		var isPrimary, isUnique bool
-
-		if err := rows.Scan(&indexName, &columnName, &isPrimary, &isUnique, &indexType); err != nil {
-			return nil, nil, err
-		}
-
-		// For primary key indexes
-		if isPrimary {
-			primaryKeyColumns = append(primaryKeyColumns, columnName)
-		}
-
-		// Initialize the index in the map if it doesn't exist
-		if _, exists := indexMap[indexName]; !exists {
-			indexMap[indexName] = map[string]interface{}{
-				"name":    indexName,
-				"columns": []string{},
-			}
-			if isUnique {
-				indexMap[indexName]["unique"] = true
-			}
-		}
-
-		// Add column to the columns array for this index
-		columns := indexMap[indexName]["columns"].([]string)
-		indexMap[indexName]["columns"] = append(columns, columnName)
-	}
-
-	// Convert map to array
-	indexes := make([]map[string]interface{}, 0, len(indexMap))
-	for _, idx := range indexMap {
-		indexes = append(indexes, idx)
+		return nil, nil, err
 	}
 
 	return indexes, primaryKeyColumns, nil

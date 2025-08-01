@@ -20,10 +20,15 @@ func TestCreateServer(t *testing.T) {
 		t.Fatal("CreateServer returned nil server")
 	}
 
-	// Test with invalid connection string
-	_, err = CreateServer("postgresql://invalid:invalid@localhost:26257/nonexistent")
-	if err == nil {
-		t.Fatal("CreateServer should fail with invalid connection string")
+	// Test with invalid connection string - should succeed in creation but fail on actual use
+	s2, err := CreateServer("postgresql://invalid:invalid@localhost:26257/nonexistent")
+	if err != nil {
+		t.Fatalf("CreateServer should succeed with invalid connection string (lazy loading): %v", err)
+	}
+	defer Cleanup()
+
+	if s2 == nil {
+		t.Fatal("CreateServer should return non-nil server even with invalid connection")
 	}
 }
 
@@ -38,11 +43,9 @@ func TestCleanup(t *testing.T) {
 	// Test
 	Cleanup()
 
-	// Verify DB connection is closed
-	if db.DB != nil {
-		err = db.DB.Ping()
-		if err == nil {
-			t.Fatal("DB connection still active after Cleanup()")
-		}
+	// Verify connection pool is closed
+	poolMgr := db.GetPoolManager()
+	if poolMgr.IsInitialized() {
+		t.Fatal("Connection pool still initialized after Cleanup()")
 	}
 }

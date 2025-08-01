@@ -12,11 +12,11 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// CreateServer creates a new MCP server
+// CreateServer creates MCP server with delayed database connection initialization
 func CreateServer(connectionString string) (*server.MCPServer, error) {
-	// Initialize database connection
+	// Set connection string but don't connect immediately
 	if err := db.InitDB(connectionString); err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %v", err)
+		return nil, fmt.Errorf("failed to initialize database configuration: %v", err)
 	}
 
 	// Create MCP server with capabilities
@@ -30,19 +30,30 @@ func CreateServer(connectionString string) (*server.MCPServer, error) {
 		server.WithInstructions("This server allows you to interact with KWDB (KaiwuDB) databases using SQL."),
 	)
 
-	// Register resources
-	if err := resources.RegisterResources(s); err != nil {
-		return nil, err
+	// Register resources with lazy loading - don't fetch table info at startup
+	if err := registerLazyResources(s); err != nil {
+		return nil, fmt.Errorf("failed to register resources: %v", err)
 	}
 
-	// Register prompts
+	// Register prompts - basic prompts without table schemas
 	prompts.RegisterPrompts(s)
 
 	// Register tools
 	tools.RegisterTools(s)
 
-	log.Println("KWDB (KaiwuDB) MCP Server initialized successfully")
+	log.Println("KWDB (KaiwuDB) MCP Server initialized successfully (database connection will be established on demand)")
 	return s, nil
+}
+
+// registerLazyResources registers resources with lazy loading
+func registerLazyResources(s *server.MCPServer) error {
+	// Register basic resources
+	resources.RegisterStaticResources(s)
+
+	// Register dynamic resource templates without preloading data
+	resources.RegisterDynamicResourceTemplates(s)
+
+	return nil
 }
 
 // ServeStdio starts the server using stdio
@@ -67,4 +78,20 @@ func ServeHTTP(s *server.MCPServer, addr string) error {
 // Cleanup performs cleanup operations
 func Cleanup() {
 	db.Close()
+}
+
+// GetConnectionStats 获取连接池统计信息
+func GetConnectionStats() interface{} {
+	stats := db.GetConnectionStats()
+	return map[string]interface{}{
+		"max_open_connections": stats.MaxOpenConnections,
+		"open_connections":     stats.OpenConnections,
+		"in_use":               stats.InUse,
+		"idle":                 stats.Idle,
+		"wait_count":           stats.WaitCount,
+		"wait_duration":        stats.WaitDuration.String(),
+		"max_idle_closed":      stats.MaxIdleClosed,
+		"max_idle_time_closed": stats.MaxIdleTimeClosed,
+		"max_lifetime_closed":  stats.MaxLifetimeClosed,
+	}
 }

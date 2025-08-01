@@ -222,6 +222,17 @@ func NewAudioContent(data, mimeType string) AudioContent {
 	}
 }
 
+// Helper function to create a new ResourceLink
+func NewResourceLink(uri, name, description, mimeType string) ResourceLink {
+	return ResourceLink{
+		Type:        "resource_link",
+		URI:         uri,
+		Name:        name,
+		Description: description,
+		MIMEType:    mimeType,
+	}
+}
+
 // Helper function to create a new EmbeddedResource
 func NewEmbeddedResource(resource ResourceContents) EmbeddedResource {
 	return EmbeddedResource{
@@ -239,6 +250,44 @@ func NewToolResultText(text string) *CallToolResult {
 				Text: text,
 			},
 		},
+	}
+}
+
+// NewToolResultStructured creates a new CallToolResult with structured content.
+// It includes both the structured content and a text representation for backward compatibility.
+func NewToolResultStructured(structured any, fallbackText string) *CallToolResult {
+	return &CallToolResult{
+		Content: []Content{
+			TextContent{
+				Type: "text",
+				Text: fallbackText,
+			},
+		},
+		StructuredContent: structured,
+	}
+}
+
+// NewToolResultStructuredOnly creates a new CallToolResult with structured
+// content and creates a JSON string fallback for backwards compatibility.
+// This is useful when you want to provide structured data without any specific text fallback.
+func NewToolResultStructuredOnly(structured any) *CallToolResult {
+	var fallbackText string
+	// Convert to JSON string for backward compatibility
+	jsonBytes, err := json.Marshal(structured)
+	if err != nil {
+		fallbackText = fmt.Sprintf("Error serializing structured content: %v", err)
+	} else {
+		fallbackText = string(jsonBytes)
+	}
+
+	return &CallToolResult{
+		Content: []Content{
+			TextContent{
+				Type: "text",
+				Text: fallbackText,
+			},
+		},
+		StructuredContent: structured,
 	}
 }
 
@@ -475,6 +524,16 @@ func ParseContent(contentMap map[string]any) (Content, error) {
 			return nil, fmt.Errorf("audio data or mimeType is missing")
 		}
 		return NewAudioContent(data, mimeType), nil
+
+	case "resource_link":
+		uri := ExtractString(contentMap, "uri")
+		name := ExtractString(contentMap, "name")
+		description := ExtractString(contentMap, "description")
+		mimeType := ExtractString(contentMap, "mimeType")
+		if uri == "" || name == "" {
+			return nil, fmt.Errorf("resource_link uri or name is missing")
+		}
+		return NewResourceLink(uri, name, description, mimeType), nil
 
 	case "resource":
 		resourceMap := ExtractMap(contentMap, "resource")

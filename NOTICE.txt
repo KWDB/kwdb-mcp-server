@@ -20,6 +20,34 @@ Source: https://github.com/mark3labs/mcp-go
 License: BSD 3-Clause
 Source: https://github.com/yosida95/uritemplate
 
+5. github.com/spf13/cast
+License: MIT
+Source: https://github.com/spf13/cast
+
+6. github.com/bahlo/generic-list-go
+License: BSD-3-Clause
+Source: https://github.com/bahlo/generic-list-go
+
+7. github.com/buger/jsonparser
+License: MIT
+Source: https://github.com/buger/jsonparser
+
+8. github.com/invopop/jsonschema
+License: MIT
+Source: https://github.com/invopop/jsonschema
+
+9. github.com/mailru/easyjson
+License: MIT
+Source: https://github.com/mailru/easyjson
+
+10. github.com/wk8/go-ordered-map/v2
+License: Apache 2.0
+Source: https://github.com/wk8/go-ordered-map
+
+11. gopkg.in/yaml.v3
+License: MIT and Apache 2.0
+Source: https://github.com/go-yaml/yaml
+
 Each of these components is subject to its respective license terms. 
 We acknowledge and are grateful to these developers for their contributions 
 to open source. 

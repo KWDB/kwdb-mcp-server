@@ -11,45 +11,32 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// RegisterResources registers all resources with the MCP server
-func RegisterResources(s *server.MCPServer) error {
-	// Get tables
-	tables, err := db.GetTables()
-	if err != nil {
-		return fmt.Errorf("failed to list database tables: %v", err)
-	}
-
+// RegisterStaticResources registers static resources that don't depend on database connection
+func RegisterStaticResources(s *server.MCPServer) {
 	// Register KWDB product info resource
 	registerKWDBProductInfo(s)
+}
 
-	// Register database info resource template (parameterized)
+// RegisterDynamicResourceTemplates registers dynamic resource templates and concrete resources
+func RegisterDynamicResourceTemplates(s *server.MCPServer) {
+	// Attempt to dynamically register concrete database and table resources
+	registerDynamicDatabaseAndTableResources(s)
+
+	// Keep template resources as fallback
 	registerDBInfoResourceTemplate(s)
+	registerTableResourceTemplate(s)
+}
 
-	// Get all databases
-	databases, err := db.GetDatabases()
-	if err != nil {
-		fmt.Printf("Warning: Failed to list databases: %v\n", err)
-		// Continue even if we can't get the databases
-	} else {
-		// Register specific database info resources
-		for _, dbName := range databases {
-			registerSpecificDBInfoResource(s, dbName)
-		}
-	}
-
-	// Register table resources
-	for _, tableName := range tables {
-		registerTableResource(s, tableName)
-	}
-
-	// TODO: Add metrics resource in the future
-
+// RegisterResources maintains compatibility but switches to lazy loading
+func RegisterResources(s *server.MCPServer) error {
+	RegisterStaticResources(s)
+	RegisterDynamicResourceTemplates(s)
 	return nil
 }
 
 // registerKWDBProductInfo registers information about the KWDB product as a whole
 func registerKWDBProductInfo(s *server.MCPServer) {
-	// 固定的产品信息 URI
+
 	fixedURI := "kwdb://product_info"
 
 	// Create KWDB product info resource
@@ -62,11 +49,16 @@ func registerKWDBProductInfo(s *server.MCPServer) {
 
 	// Add KWDB product info resource handler
 	s.AddResource(kwdbInfoResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		// Get product info from database
-		productInfo, err := db.GetProductInfo()
+		var productInfo interface{}
+
+		// Try to get product info from database first
+		dbProductInfo, err := db.GetProductInfo()
 		if err != nil {
 			// Return error directly instead of wrapping in JSON content
 			return nil, fmt.Errorf("failed to retrieve KWDB product information: %v", err)
+		} else {
+			// Use database information and mark as connected
+			productInfo = dbProductInfo
 		}
 
 		// Convert to JSON string
@@ -82,6 +74,163 @@ func registerKWDBProductInfo(s *server.MCPServer) {
 				URI:      fixedURI,
 				MIMEType: "application/json",
 				Text:     string(infoJSON),
+			},
+		}, nil
+	})
+}
+
+// registerDynamicDatabaseAndTableResources 动态注册数据库和表资源
+func registerDynamicDatabaseAndTableResources(s *server.MCPServer) {
+
+	if tables, err := db.GetTablesWithContext(context.Background()); err == nil {
+		for _, tableName := range tables {
+			registerTableResource(s, tableName)
+		}
+	}
+
+	if databases, err := db.GetDatabases(); err == nil {
+		for _, dbName := range databases {
+			registerSpecificDBInfoResource(s, dbName)
+		}
+	}
+}
+
+// registerSpecificDBInfoResource registers a resource for a specific database
+func registerSpecificDBInfoResource(s *server.MCPServer, dbName string) {
+
+	fixedURI := fmt.Sprintf("kwdb://db_info/%s", dbName)
+
+	// Create database info resource
+	dbInfoResource := mcp.NewResource(
+		fixedURI,
+		fmt.Sprintf("KWDB (KaiwuDB) Database: %s", dbName),
+		mcp.WithResourceDescription(fmt.Sprintf("Information about the KWDB (KaiwuDB) database: %s", dbName)),
+		mcp.WithMIMEType("application/json"),
+	)
+
+	// Add database info resource handler
+	s.AddResource(dbInfoResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		// Get database info
+		dbInfo, err := db.GetDatabaseInfoByName(dbName)
+		if err != nil {
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to retrieve database information for '%s': %v", dbName, err)
+		}
+
+		// Convert to JSON string
+		dbInfoJSON, err := json.MarshalIndent(dbInfo, "", "  ")
+		if err != nil {
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to marshal database information for '%s': %v", dbName, err)
+		}
+
+		// Return database info as JSON
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      fixedURI,
+				MIMEType: "application/json",
+				Text:     string(dbInfoJSON),
+			},
+		}, nil
+	})
+}
+
+// registerTableResource registers a resource for a specific table
+func registerTableResource(s *server.MCPServer, tableName string) {
+	// 为特定表创建固定 URI
+	fixedURI := fmt.Sprintf("kwdb://table/%s", tableName)
+
+	// Create table resource
+	tableResource := mcp.NewResource(
+		fixedURI,
+		fmt.Sprintf("Table: %s", tableName),
+		mcp.WithResourceDescription(fmt.Sprintf("Schema of the %s table in KWDB (KaiwuDB)", tableName)),
+		mcp.WithMIMEType("application/json"),
+	)
+
+	// Add table resource handler
+	s.AddResource(tableResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		// Get table columns
+		tableInfo, err := db.GetTableColumnsWithContext(ctx, tableName)
+		if err != nil {
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to get table schema for '%s': %v", tableName, err)
+		}
+
+		// Get table metadata including indexes and primary key
+		tableMetadata, err := db.GetTableMetadata(tableName)
+		if err != nil {
+			// Log the error but continue without metadata
+			fmt.Printf("Warning: Failed to get metadata for table %s: %v\n", tableName, err)
+			tableMetadata = map[string]interface{}{}
+		}
+
+		// Get example queries from the database
+		exampleQueries, err := db.GetTableExampleQueries(tableName)
+		if err != nil {
+			// Log the error but continue
+			fmt.Printf("Warning: Failed to get example queries for table %s: %v\n", tableName, err)
+			exampleQueries = map[string][]string{
+				"read":  {},
+				"write": {},
+			}
+		}
+
+		// Standardized response
+		response := map[string]interface{}{
+			"status": "success",
+			"type":   "table_schema",
+			"data": map[string]interface{}{
+				"table_name":            tableName,
+				"columns":               tableInfo,
+				"read_example_queries":  exampleQueries["read"],
+				"write_example_queries": exampleQueries["write"],
+			},
+			"error": nil,
+		}
+
+		// Add metadata to the response
+		if tableMetadata != nil {
+			dataMap := response["data"].(map[string]interface{})
+
+			// Add table_type if available
+			if tableType, ok := tableMetadata["table_type"]; ok {
+				dataMap["table_type"] = tableType
+			}
+
+			// Add storage_engine if available
+			if storageEngine, ok := tableMetadata["storage_engine"]; ok {
+				dataMap["storage_engine"] = storageEngine
+			}
+
+			// Add primary_key if available
+			if primaryKey, ok := tableMetadata["primary_key"]; ok {
+				dataMap["primary_key"] = primaryKey
+			}
+
+			// Add indexes if available
+			if indexes, ok := tableMetadata["indexes"]; ok {
+				dataMap["indexes"] = indexes
+			}
+
+			// Add partition_info if available
+			if partitionInfo, ok := tableMetadata["partition_info"]; ok {
+				dataMap["partition_info"] = partitionInfo
+			}
+		}
+
+		// Convert table schema to JSON
+		schemaJSON, err := json.MarshalIndent(response, "", "  ")
+		if err != nil {
+			// Return error directly instead of wrapping in JSON content
+			return nil, fmt.Errorf("failed to serialize table schema for '%s': %v", tableName, err)
+		}
+
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      fixedURI,
+				MIMEType: "application/json",
+				Text:     string(schemaJSON),
 			},
 		}, nil
 	})
@@ -168,65 +317,35 @@ func registerDBInfoResourceTemplate(s *server.MCPServer) {
 	})
 }
 
-// registerSpecificDBInfoResource registers a resource for a specific database
-func registerSpecificDBInfoResource(s *server.MCPServer, dbName string) {
-	// 为特定数据库创建固定 URI
-	fixedURI := fmt.Sprintf("kwdb://db_info/%s", dbName)
+// registerTableResourceTemplate 注册表资源模板
+func registerTableResourceTemplate(s *server.MCPServer) {
+	// 模板 URI
+	templateURI := "kwdb://table/{table_name}"
 
-	// Create database info resource
-	dbInfoResource := mcp.NewResource(
-		fixedURI,
-		fmt.Sprintf("KWDB (KaiwuDB) Database: %s", dbName),
-		mcp.WithResourceDescription(fmt.Sprintf("Information about the KWDB (KaiwuDB) database: %s", dbName)),
+	// Create table resource template
+	tableResourceTemplate := mcp.NewResource(
+		templateURI,
+		"Table Schema",
+		mcp.WithResourceDescription("Schema of a specific table in KWDB (KaiwuDB)"),
 		mcp.WithMIMEType("application/json"),
 	)
 
-	// Add database info resource handler
-	s.AddResource(dbInfoResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		// Get database info
-		dbInfo, err := db.GetDatabaseInfoByName(dbName)
-		if err != nil {
-			// Return error directly instead of wrapping in JSON content
-			return nil, fmt.Errorf("failed to retrieve database information for '%s': %v", dbName, err)
+	// Add table resource handler with lazy loading
+	s.AddResource(tableResourceTemplate, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		// 从URI提取表名
+		uri := request.Params.URI
+		if uri == "" {
+			return nil, fmt.Errorf("cannot process table template without a specific table name")
 		}
 
-		// Convert to JSON string
-		dbInfoJSON, err := json.MarshalIndent(dbInfo, "", "  ")
+		tableName, err := extractParamFromURI(uri, templateURI, "table_name")
 		if err != nil {
-			// Return error directly instead of wrapping in JSON content
-			return nil, fmt.Errorf("failed to marshal database information for '%s': %v", dbName, err)
+			return nil, fmt.Errorf("invalid URI format for table resource: %v", err)
 		}
 
-		// Return database info as JSON
-		return []mcp.ResourceContents{
-			mcp.TextResourceContents{
-				URI:      fixedURI,
-				MIMEType: "application/json",
-				Text:     string(dbInfoJSON),
-			},
-		}, nil
-	})
-}
-
-// registerTableResource registers a resource for a specific table
-func registerTableResource(s *server.MCPServer, tableName string) {
-	// 为特定表创建固定 URI
-	fixedURI := fmt.Sprintf("kwdb://table/%s", tableName)
-
-	// Create table resource
-	tableResource := mcp.NewResource(
-		fixedURI,
-		fmt.Sprintf("Table: %s", tableName),
-		mcp.WithResourceDescription(fmt.Sprintf("Schema of the %s table in KWDB (KaiwuDB)", tableName)),
-		mcp.WithMIMEType("application/json"),
-	)
-
-	// Add table resource handler
-	s.AddResource(tableResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		// Get table columns
-		tableInfo, err := db.GetTableColumns(tableName)
+		// 延迟加载：在调用时才获取表结构
+		tableInfo, err := db.GetTableColumnsWithContext(ctx, tableName)
 		if err != nil {
-			// Return error directly instead of wrapping in JSON content
 			return nil, fmt.Errorf("failed to get table schema for '%s': %v", tableName, err)
 		}
 
@@ -301,7 +420,7 @@ func registerTableResource(s *server.MCPServer, tableName string) {
 
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
-				URI:      fixedURI,
+				URI:      uri,
 				MIMEType: "application/json",
 				Text:     string(schemaJSON),
 			},
