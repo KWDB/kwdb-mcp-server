@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -20,7 +21,7 @@ func RegisterTools(s *server.MCPServer) {
 	registerWriteQueryTool(s)
 }
 
-// registerReadQueryTool registers the read-query tool
+// registerReadQueryTool registers read query tool with concurrency and timeout support
 func registerReadQueryTool(s *server.MCPServer) {
 	// Create read query tool
 	readQueryTool := mcp.NewTool("read-query",
@@ -36,16 +37,24 @@ func registerReadQueryTool(s *server.MCPServer) {
 		sql := request.GetString("sql", "")
 		originalSQL := sql
 
+		// Add timeout control
+		queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
 		// Check if the query is a SELECT statement without LIMIT
 		if isSelectWithoutLimit(sql) {
 			// Add LIMIT 20 to the query
 			sql = addLimitToQuery(sql, 20)
 		}
 
-		// Execute query
-		result, err := db.ExecuteQuery(sql)
+		// 使用连接池执行查询
+		result, err := db.ExecuteQueryWithContext(queryCtx, sql)
 		if err != nil {
-			return mcp.NewToolResultErrorFromErr("Query error", err), nil
+			// 提供更详细的错误信息
+			if queryCtx.Err() == context.DeadlineExceeded {
+				return mcp.NewToolResultError("Query timeout: the query took too long to execute"), nil
+			}
+			return mcp.NewToolResultErrorFromErr("Database connection or query error", err), nil
 		}
 
 		// Extract column names (if result is not empty)
@@ -71,6 +80,59 @@ func registerReadQueryTool(s *server.MCPServer) {
 					"query":          sql,
 					"original_query": originalSQL,
 					"auto_limited":   sql != originalSQL,
+				},
+			},
+			"error": nil,
+		}
+
+		// Convert result to JSON
+		jsonResult, err := json.MarshalIndent(response, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize result: %v", err)
+		}
+
+		return mcp.NewToolResultText(string(jsonResult)), nil
+	})
+}
+
+// registerWriteQueryTool 注册写查询工具，支持并发和超时
+func registerWriteQueryTool(s *server.MCPServer) {
+	// Create write query tool
+	writeQueryTool := mcp.NewTool("write-query",
+		mcp.WithDescription("Execute data modification queries including DML and DDL operations on KWDB (KaiwuDB)"),
+		mcp.WithString("sql",
+			mcp.Required(),
+			mcp.Description("SQL query to execute. Supports all write operations including INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc."),
+		),
+	)
+
+	// Add write query handler
+	s.AddTool(writeQueryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		sql := request.GetString("sql", "")
+
+		// 添加超时控制
+		queryCtx, cancel := context.WithTimeout(ctx, 60*time.Second) // 写操作给更长的超时时间
+		defer cancel()
+
+		// 使用连接池执行写操作
+		rowsAffected, err := db.ExecuteWriteQueryWithContext(queryCtx, sql)
+		if err != nil {
+			// 提供更详细的错误信息
+			if queryCtx.Err() == context.DeadlineExceeded {
+				return mcp.NewToolResultError("Write operation timeout: the operation took too long to complete"), nil
+			}
+			return mcp.NewToolResultErrorFromErr("Database connection or write operation error", err), nil
+		}
+
+		// Standardized response
+		response := map[string]interface{}{
+			"status": "success",
+			"type":   "write_result",
+			"data": map[string]interface{}{
+				"result_type":   "write",
+				"affected_rows": rowsAffected,
+				"metadata": map[string]interface{}{
+					"query": sql,
 				},
 			},
 			"error": nil,
@@ -129,49 +191,4 @@ func addLimitToQuery(sql string, limit int) string {
 	}
 
 	return sql
-}
-
-// registerWriteQueryTool registers the write-query tool
-func registerWriteQueryTool(s *server.MCPServer) {
-	// Create write query tool
-	writeQueryTool := mcp.NewTool("write-query",
-		mcp.WithDescription("Execute data modification queries including DML and DDL operations on KWDB (KaiwuDB)"),
-		mcp.WithString("sql",
-			mcp.Required(),
-			mcp.Description("SQL query to execute. Supports all write operations including INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc."),
-		),
-	)
-
-	// Add write query handler
-	s.AddTool(writeQueryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		sql := request.GetString("sql", "")
-
-		// Execute write operation
-		rowsAffected, err := db.ExecuteWriteQuery(sql)
-		if err != nil {
-			return mcp.NewToolResultErrorFromErr("Query error", err), nil
-		}
-
-		// Standardized response
-		response := map[string]interface{}{
-			"status": "success",
-			"type":   "write_result",
-			"data": map[string]interface{}{
-				"result_type":   "write",
-				"affected_rows": rowsAffected,
-				"metadata": map[string]interface{}{
-					"query": sql,
-				},
-			},
-			"error": nil,
-		}
-
-		// Convert result to JSON
-		jsonResult, err := json.MarshalIndent(response, "", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize result: %v", err)
-		}
-
-		return mcp.NewToolResultText(string(jsonResult)), nil
-	})
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -199,25 +200,108 @@ func RegisterPrompts(s *server.MCPServer) {
 	registerUseCasePrompts(s)
 }
 
-// registerSyntaxGuidePrompt registers the syntax guide prompt
+// registerSyntaxGuidePrompt registers the parameterized syntax guide prompt
 func registerSyntaxGuidePrompt(s *server.MCPServer) {
-	// Create syntax guide prompt
+	// Create syntax guide prompt with parameter support
 	syntaxGuidePrompt := mcp.NewPrompt("syntax_guide",
-		mcp.WithPromptDescription("KWDB (KaiwuDB) syntax guide and examples"),
+		mcp.WithPromptDescription("KWDB (KaiwuDB) syntax guide and examples. Optional parameters: 'database' and 'table' for table-specific guidance"),
+		mcp.WithArgument("database", mcp.ArgumentDescription("Database name to provide specific table information")),
+		mcp.WithArgument("table", mcp.ArgumentDescription("Table name to provide specific table schema and examples")),
 	)
 
-	// Add syntax guide prompt handler
+	// Add parameterized syntax guide prompt handler
 	s.AddPrompt(syntaxGuidePrompt, func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		arguments := request.Params.Arguments
+
+		// Extract parameters - Arguments is already map[string]string
+		database := arguments["database"]
+		table := arguments["table"]
+
+		// Base content
+		baseContent := fmt.Sprintf(`You are a SQL expert specializing in KWDB (KaiwuDB). Help users understand the syntax and capabilities of the database.
+
+%s`, SyntaxGuide)
+
+		// Enhanced content for specific table
+		tableContent := ""
+		if table != "" {
+			// Get table schema information
+			if columns, err := db.GetTableColumnsWithContext(ctx, table); err == nil && len(columns) > 0 {
+				tableContent += fmt.Sprintf("\n\n## Table Schema for '%s'\n", table)
+				for _, col := range columns {
+					columnName, _ := col["column_name"].(string)
+					dataType, _ := col["data_type"].(string)
+					isNullable, _ := col["is_nullable"].(string)
+					columnDefault, _ := col["column_default"].(string)
+
+					if columnName != "" && dataType != "" {
+						tableContent += fmt.Sprintf("- **%s**: %s", columnName, dataType)
+						if isNullable == "NO" {
+							tableContent += " (NOT NULL)"
+						}
+						if columnDefault != "" {
+							tableContent += fmt.Sprintf(" DEFAULT %s", columnDefault)
+						}
+						tableContent += "\n"
+					}
+				}
+
+				// Add example queries for this table
+				readExamples := GetReadExampleQueries(table)
+				if len(readExamples) > 0 {
+					tableContent += fmt.Sprintf("\n## Example Read Queries for '%s'\n", table)
+					for _, example := range readExamples {
+						if example != "" {
+							tableContent += fmt.Sprintf("```sql\n%s\n```\n\n", example)
+						}
+					}
+				}
+
+				writeExamples := GetWriteExampleQueries(table)
+				if len(writeExamples) > 0 {
+					tableContent += fmt.Sprintf("\n## Example Write Queries for '%s'\n", table)
+					for _, example := range writeExamples {
+						if example != "" {
+							tableContent += fmt.Sprintf("```sql\n%s\n```\n\n", example)
+						}
+					}
+				}
+			}
+		}
+
+		// Database information
+		dbContent := ""
+		if database != "" {
+			if dbInfo, err := db.GetDatabaseInfoByName(database); err == nil {
+				dbContent += fmt.Sprintf("\n\n## Database Information for '%s'\n", database)
+				dbContent += fmt.Sprintf("- **Name**: %s\n", dbInfo.Name)
+				dbContent += fmt.Sprintf("- **Version**: %s\n", dbInfo.Version)
+				dbContent += fmt.Sprintf("- **Engine Type**: %s\n", dbInfo.EngineType)
+				if dbInfo.Comment != "" {
+					dbContent += fmt.Sprintf("- **Comment**: %s\n", dbInfo.Comment)
+				}
+				// Add properties if available
+				for key, value := range dbInfo.Properties {
+					dbContent += fmt.Sprintf("- **%s**: %v\n", key, value)
+				}
+			}
+		}
+
+		// Construct title
+		title := "KWDB (KaiwuDB) Syntax Guide"
+		if table != "" {
+			title += fmt.Sprintf(" - Table: %s", table)
+		}
+		if database != "" {
+			title += fmt.Sprintf(" - Database: %s", database)
+		}
+
 		return mcp.NewGetPromptResult(
-			"KWDB (KaiwuDB) Syntax Guide",
+			title,
 			[]mcp.PromptMessage{
 				mcp.NewPromptMessage(
 					mcp.RoleUser,
-					mcp.NewTextContent("You are a SQL expert specializing in KWDB (KaiwuDB). Help users understand the syntax and capabilities of the database."),
-				),
-				mcp.NewPromptMessage(
-					mcp.RoleAssistant,
-					mcp.NewTextContent(SyntaxGuide),
+					mcp.NewTextContent(baseContent+tableContent+dbContent),
 				),
 			},
 		), nil

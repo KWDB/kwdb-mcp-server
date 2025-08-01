@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -239,7 +241,9 @@ func TestHTTPServer(t *testing.T) {
 		}
 	}
 
-	// 尝试完成API (如果支持)
+	t.Log("=== 开始并发测试 ===")
+	runConcurrencyTests(t, c, ctx, tools.Tools, resources.Resources)
+
 	completeRequest := mcp.CompleteRequest{}
 	completeRequest.Params.Ref = "SELECT * FROM"
 	_, err = c.Complete(ctx, completeRequest)
@@ -249,6 +253,343 @@ func TestHTTPServer(t *testing.T) {
 		t.Logf("✅ Completion API supported!")
 		t.Logf("Completion response received")
 	}
+}
+
+// runConcurrencyTests 运行并发测试以验证连接池的并发访问能力
+func runConcurrencyTests(t *testing.T, c *client.Client, ctx context.Context, tools []mcp.Tool, resources []mcp.Resource) {
+	// 并发测试配置
+	const (
+		concurrentRequests = 10              // 并发请求数
+		testDuration       = 5 * time.Second // 测试持续时间（调整为5秒以便快速验证）
+	)
+
+	// 测试1: 并发调用读查询工具
+	if containsToolHTTP(tools, "read-query") {
+		t.Logf("测试1: 并发读查询 (%d个并发请求)", concurrentRequests)
+		testConcurrentReadQueries(t, c, concurrentRequests)
+	}
+
+	// 测试2: 并发访问资源
+	if len(resources) > 0 {
+		t.Logf("测试2: 并发访问资源 (%d个并发请求)", concurrentRequests)
+		testConcurrentResourceAccess(t, c, resources, concurrentRequests)
+	}
+
+	// 测试3: 混合并发访问（tools + resources）
+	if containsToolHTTP(tools, "read-query") && len(resources) > 0 {
+		t.Logf("测试3: 混合并发访问 (%d个并发请求)", concurrentRequests)
+		testMixedConcurrentAccess(t, c, resources, concurrentRequests)
+	}
+
+	// 测试4: 高负载并发测试
+	if containsToolHTTP(tools, "read-query") {
+		t.Logf("测试4: 高负载并发测试 (%v持续压力)", testDuration)
+		testHighLoadConcurrency(t, c, testDuration)
+	}
+
+	t.Log("=== 并发测试完成 ===")
+}
+
+// testConcurrentReadQueries 测试并发读查询
+func testConcurrentReadQueries(t *testing.T, c *client.Client, concurrentRequests int) {
+	var wg sync.WaitGroup
+	results := make(chan TestResult, concurrentRequests)
+	startTime := time.Now()
+
+	for i := 0; i < concurrentRequests; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			queryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			callToolRequest := mcp.CallToolRequest{}
+			callToolRequest.Params.Name = "read-query"
+			callToolRequest.Params.Arguments = map[string]interface{}{
+				"sql": fmt.Sprintf("SELECT %d as request_id, 'concurrent_test' as test_type", id),
+			}
+
+			reqStart := time.Now()
+			_, err := c.CallTool(queryCtx, callToolRequest)
+			duration := time.Since(reqStart)
+
+			results <- TestResult{
+				ID:       id,
+				Success:  err == nil,
+				Duration: duration,
+				Error:    err,
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+	totalDuration := time.Since(startTime)
+
+	// 分析结果
+	successful := 0
+	failed := 0
+	var totalTime time.Duration
+	var maxTime time.Duration
+	var minTime time.Duration = time.Hour
+
+	for result := range results {
+		if result.Success {
+			successful++
+		} else {
+			failed++
+			t.Logf("  请求 %d 失败: %v", result.ID, result.Error)
+		}
+		totalTime += result.Duration
+		if result.Duration > maxTime {
+			maxTime = result.Duration
+		}
+		if result.Duration < minTime {
+			minTime = result.Duration
+		}
+	}
+
+	avgTime := totalTime / time.Duration(concurrentRequests)
+
+	t.Logf("  并发读查询结果: %d成功, %d失败", successful, failed)
+	t.Logf("  总耗时: %v, 平均响应时间: %v", totalDuration, avgTime)
+	t.Logf("  最快: %v, 最慢: %v", minTime, maxTime)
+
+	if failed > 0 {
+		t.Errorf("并发读查询测试失败: %d/%d 请求失败", failed, concurrentRequests)
+	}
+}
+
+// testConcurrentResourceAccess 测试并发资源访问
+func testConcurrentResourceAccess(t *testing.T, c *client.Client, resources []mcp.Resource, concurrentRequests int) {
+	var wg sync.WaitGroup
+	results := make(chan TestResult, concurrentRequests)
+	startTime := time.Now()
+
+	// 选择非模板资源进行测试
+	nonTemplateResources := []mcp.Resource{}
+	for _, resource := range resources {
+		if !strings.Contains(resource.URI, "{") || !strings.Contains(resource.URI, "}") {
+			nonTemplateResources = append(nonTemplateResources, resource)
+		}
+	}
+
+	if len(nonTemplateResources) == 0 {
+		t.Logf("  跳过资源并发测试 - 没有找到非模板资源")
+		return
+	}
+
+	for i := 0; i < concurrentRequests; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			resourceCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// 轮流访问不同的资源
+			resource := nonTemplateResources[id%len(nonTemplateResources)]
+
+			readRequest := mcp.ReadResourceRequest{}
+			readRequest.Params.URI = resource.URI
+
+			reqStart := time.Now()
+			_, err := c.ReadResource(resourceCtx, readRequest)
+			duration := time.Since(reqStart)
+
+			results <- TestResult{
+				ID:       id,
+				Success:  err == nil,
+				Duration: duration,
+				Error:    err,
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+	totalDuration := time.Since(startTime)
+
+	// 分析结果
+	successful := 0
+	failed := 0
+	var totalTime time.Duration
+
+	for result := range results {
+		if result.Success {
+			successful++
+		} else {
+			failed++
+			t.Logf("  资源访问 %d 失败: %v", result.ID, result.Error)
+		}
+		totalTime += result.Duration
+	}
+
+	avgTime := totalTime / time.Duration(concurrentRequests)
+
+	t.Logf("  并发资源访问结果: %d成功, %d失败", successful, failed)
+	t.Logf("  总耗时: %v, 平均响应时间: %v", totalDuration, avgTime)
+
+	if failed > 0 {
+		t.Errorf("并发资源访问测试失败: %d/%d 请求失败", failed, concurrentRequests)
+	}
+}
+
+// testMixedConcurrentAccess 测试混合并发访问
+func testMixedConcurrentAccess(t *testing.T, c *client.Client, resources []mcp.Resource, concurrentRequests int) {
+	var wg sync.WaitGroup
+	results := make(chan TestResult, concurrentRequests)
+	startTime := time.Now()
+
+	// 选择非模板资源
+	nonTemplateResources := []mcp.Resource{}
+	for _, resource := range resources {
+		if !strings.Contains(resource.URI, "{") || !strings.Contains(resource.URI, "}") {
+			nonTemplateResources = append(nonTemplateResources, resource)
+		}
+	}
+
+	for i := 0; i < concurrentRequests; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			reqStart := time.Now()
+			var err error
+
+			// 交替执行工具调用和资源访问
+			if id%2 == 0 {
+				// 调用工具
+				callToolRequest := mcp.CallToolRequest{}
+				callToolRequest.Params.Name = "read-query"
+				callToolRequest.Params.Arguments = map[string]interface{}{
+					"sql": fmt.Sprintf("SELECT %d as mixed_test_id", id),
+				}
+				_, err = c.CallTool(reqCtx, callToolRequest)
+			} else if len(nonTemplateResources) > 0 {
+				// 访问资源
+				resource := nonTemplateResources[id%len(nonTemplateResources)]
+				readRequest := mcp.ReadResourceRequest{}
+				readRequest.Params.URI = resource.URI
+				_, err = c.ReadResource(reqCtx, readRequest)
+			}
+
+			duration := time.Since(reqStart)
+
+			results <- TestResult{
+				ID:       id,
+				Success:  err == nil,
+				Duration: duration,
+				Error:    err,
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+	totalDuration := time.Since(startTime)
+
+	// 分析结果
+	successful := 0
+	failed := 0
+
+	for result := range results {
+		if result.Success {
+			successful++
+		} else {
+			failed++
+			t.Logf("  混合请求 %d 失败: %v", result.ID, result.Error)
+		}
+	}
+
+	t.Logf("  混合并发访问结果: %d成功, %d失败", successful, failed)
+	t.Logf("  总耗时: %v", totalDuration)
+
+	if failed > 0 {
+		t.Errorf("混合并发访问测试失败: %d/%d 请求失败", failed, concurrentRequests)
+	}
+}
+
+// testHighLoadConcurrency 测试高负载并发
+func testHighLoadConcurrency(t *testing.T, c *client.Client, duration time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	requestCount := int64(0)
+	successCount := int64(0)
+	errorCount := int64(0)
+
+	// 启动多个工作者goroutine
+	const numWorkers = 20
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					// 执行查询
+					queryCtx, queryCancel := context.WithTimeout(context.Background(), 5*time.Second)
+					callToolRequest := mcp.CallToolRequest{}
+					callToolRequest.Params.Name = "read-query"
+					callToolRequest.Params.Arguments = map[string]interface{}{
+						"sql": fmt.Sprintf("SELECT %d as worker_id, NOW() as timestamp", workerID),
+					}
+
+					_, err := c.CallTool(queryCtx, callToolRequest)
+					queryCancel()
+
+					// 原子更新计数器
+					atomic.AddInt64(&requestCount, 1)
+					if err == nil {
+						atomic.AddInt64(&successCount, 1)
+					} else {
+						atomic.AddInt64(&errorCount, 1)
+					}
+
+					// 小延迟避免过于激进
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+		}(i)
+	}
+
+	// 等待测试完成
+	wg.Wait()
+
+	total := atomic.LoadInt64(&requestCount)
+	success := atomic.LoadInt64(&successCount)
+	errors := atomic.LoadInt64(&errorCount)
+
+	qps := float64(total) / duration.Seconds()
+	successRate := float64(success) / float64(total) * 100
+
+	t.Logf("  高负载测试结果:")
+	t.Logf("    总请求数: %d", total)
+	t.Logf("    成功请求: %d", success)
+	t.Logf("    失败请求: %d", errors)
+	t.Logf("    QPS: %.2f", qps)
+	t.Logf("    成功率: %.2f%%", successRate)
+
+	if successRate < 95.0 {
+		t.Errorf("高负载测试成功率过低: %.2f%% < 95%%", successRate)
+	}
+}
+
+// TestResult 测试结果结构
+type TestResult struct {
+	ID       int
+	Success  bool
+	Duration time.Duration
+	Error    error
 }
 
 func containsToolHTTP(tools []mcp.Tool, name string) bool {
