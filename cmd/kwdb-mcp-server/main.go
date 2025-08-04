@@ -2,26 +2,37 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
 	"strings"
 
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/server"
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/version"
 )
 
 func main() {
 	// Define command line parameters
 	var transport string
 	var port string
+	var showVersion bool
 
 	flag.StringVar(&transport, "t", "stdio", "Transport type (stdio, sse, or http)")
 	flag.StringVar(&transport, "transport", "stdio", "Transport type (stdio, sse, or http)")
 	flag.StringVar(&port, "p", "8080", "Port to listen on for HTTP/SSE mode")
 	flag.StringVar(&port, "port", "8080", "Port to listen on for HTTP/SSE mode")
+	flag.BoolVar(&showVersion, "v", false, "Show version information")
+	flag.BoolVar(&showVersion, "version", false, "Show version information")
 
 	// Parse command line parameters
 	flag.Parse()
+
+	// Check if version flag is set
+	if showVersion {
+		fmt.Printf("KWDB MCP Server %s\n", version.Version)
+		os.Exit(0)
+	}
 
 	// Get remaining non-flag arguments
 	args := flag.Args()
