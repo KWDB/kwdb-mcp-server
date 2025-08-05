@@ -198,6 +198,11 @@ func registerTableResource(s *server.MCPServer, tableName string) {
 				dataMap["table_type"] = tableType
 			}
 
+			// Add comment if available
+			if comment, ok := tableMetadata["comment"]; ok {
+				dataMap["comment"] = comment
+			}
+
 			// Add storage_engine if available
 			if storageEngine, ok := tableMetadata["storage_engine"]; ok {
 				dataMap["storage_engine"] = storageEngine
