@@ -288,8 +288,8 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 	var engineType string
 	comment := "" // Initialize comment as empty string
 
-	// Use SHOW DATABASES to get engine type
-	showDBQuery := `SHOW DATABASES`
+	// Use SHOW DATABASES WITH COMMENT to get engine type and comment
+	showDBQuery := `SHOW DATABASES WITH COMMENT`
 	var showDBErr error
 	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
 		rows, err := db.Query(showDBQuery)
@@ -298,7 +298,7 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 			// If error, set default values but return the database name as provided
 			engineType = "KaiwuDB"
 			// Log the error but continue
-			fmt.Printf("Warning: Failed to execute SHOW DATABASES: %v\n", err)
+			fmt.Printf("Warning: Failed to execute SHOW DATABASES WITH COMMENT: %v\n", err)
 			return nil // Continue execution even on error
 		}
 		defer rows.Close()
@@ -309,14 +309,18 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 			fmt.Printf("Warning: Failed to get column names: %v\n", err)
 			engineType = "KaiwuDB"
 		} else {
-			// Find the index of database_name and engine_type columns
+			// Find the index of database_name, engine_type and comment columns
 			dbNameIdx := -1
 			engineTypeIdx := -1
+			commentIdx := -1
 			for i, col := range columns {
-				if strings.ToLower(col) == "database_name" {
+				switch strings.ToLower(col) {
+				case "database_name":
 					dbNameIdx = i
-				} else if strings.ToLower(col) == "engine_type" {
+				case "engine_type":
 					engineTypeIdx = i
+				case "comment":
+					commentIdx = i
 				}
 			}
 
@@ -354,6 +358,21 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 							engineTypeResult = string(byteVal)
 						} else if strVal, ok := engineVal.(string); ok {
 							engineTypeResult = strVal
+						}
+					}
+
+					// Extract comment if available
+					if commentIdx != -1 && dbNameResult == dbName {
+						if commentVal := values[commentIdx]; commentVal != nil {
+							if byteVal, ok := commentVal.([]byte); ok {
+								comment = string(byteVal)
+							} else if strVal, ok := commentVal.(string); ok {
+								comment = strVal
+							}
+							// Handle NULL comment values
+							if comment == "NULL" {
+								comment = ""
+							}
 						}
 					}
 
