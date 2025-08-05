@@ -951,7 +951,6 @@ func GetTableMetadata(tableName string) (map[string]interface{}, error) {
 			if err != nil {
 				showTableTypesErr = err
 				fmt.Printf("Warning: Failed to get table types from SHOW TABLES WITH COMMENT: %v\n", err)
-				// 如果无法从SHOW TABLES获取，尝试从CREATE TABLE语句推断
 				if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
 					tableType = "TIME SERIES TABLE"
 				} else {
