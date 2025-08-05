@@ -939,36 +939,43 @@ func GetTableMetadata(tableName string) (map[string]interface{}, error) {
 			return fmt.Errorf("no rows returned by SHOW CREATE TABLE %s", tableName)
 		}
 
-		// Determine table type using SHOW TABLES
+		// Determine table type and comment using SHOW TABLES WITH COMMENT
 		var tableType string
+		var tableComment string
 
-		// 获取所有表的类型信息
-		tableTypeQuery := `SHOW TABLES`
+		// 获取所有表的类型和注释信息
+		tableTypeQuery := `SHOW TABLES WITH COMMENT`
 		var showTableTypesErr error
 		err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
 			rows, err := db.Query(tableTypeQuery)
 			if err != nil {
 				showTableTypesErr = err
-				fmt.Printf("Warning: Failed to get table types from SHOW TABLES: %v\n", err)
+				fmt.Printf("Warning: Failed to get table types from SHOW TABLES WITH COMMENT: %v\n", err)
 				// 如果无法从SHOW TABLES获取，尝试从CREATE TABLE语句推断
 				if strings.Contains(createTableSQL, "TAGS") || strings.Contains(createTableSQL, "TIME SERIES") {
 					tableType = "TIME SERIES TABLE"
 				} else {
 					tableType = "BASE TABLE"
 				}
-				return nil // Continue execution even on error
+				tableComment = "" // 设置默认空注释
+				return nil        // Continue execution even on error
 			}
 			defer rows.Close()
 			// 遍历结果找到目标表
 			found := false
-			var currentTable, currentType string
+			var currentTable, currentType, currentComment string
 			for rows.Next() {
-				if err := rows.Scan(&currentTable, &currentType); err != nil {
-					fmt.Printf("Warning: Error scanning table type: %v\n", err)
+				if err := rows.Scan(&currentTable, &currentType, &currentComment); err != nil {
+					fmt.Printf("Warning: Error scanning table type and comment: %v\n", err)
 					continue
 				}
 				if currentTable == tableName {
 					tableType = currentType
+					tableComment = currentComment
+					// Handle NULL comment values
+					if tableComment == "NULL" {
+						tableComment = ""
+					}
 					found = true
 					break
 				}
@@ -980,8 +987,9 @@ func GetTableMetadata(tableName string) (map[string]interface{}, error) {
 				} else {
 					tableType = "BASE TABLE"
 				}
+				tableComment = "" // 设置默认空注释
 			}
-			return showTableTypesErr // Return the error from SHOW TABLES
+			return showTableTypesErr // Return the error from SHOW TABLES WITH COMMENT
 		})
 
 		if err != nil {
@@ -989,6 +997,7 @@ func GetTableMetadata(tableName string) (map[string]interface{}, error) {
 		}
 
 		metadata["table_type"] = tableType
+		metadata["comment"] = tableComment
 
 		// Extract partition information if available
 		partitionInfo := extractPartitionInfo(createTableSQL)
