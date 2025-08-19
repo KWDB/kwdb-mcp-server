@@ -26,6 +26,7 @@ type PoolConfig struct {
 	MaxIdleConns    int           // Maximum number of idle connections
 	ConnMaxLifetime time.Duration // Maximum lifetime of connections
 	ConnMaxIdleTime time.Duration // Maximum idle time of connections
+	ConnTimeout     time.Duration // Connection timeout for initial connectivity test
 }
 
 // DefaultPoolConfig provides default connection pool configuration
@@ -34,6 +35,7 @@ var DefaultPoolConfig = PoolConfig{
 	MaxIdleConns:    5,                // Maximum 5 idle connections
 	ConnMaxLifetime: 5 * time.Minute,  // Connection lives for max 5 minutes
 	ConnMaxIdleTime: 30 * time.Second, // Idle connections closed after 30 seconds
+	ConnTimeout:     3 * time.Second,  // Connection timeout for connectivity test
 }
 
 var globalPoolMgr *PoolManager
@@ -49,7 +51,7 @@ func GetPoolManager() *PoolManager {
 	return globalPoolMgr
 }
 
-// InitializePool initializes connection pool (but doesn't establish actual connections)
+// InitializePool initializes connection pool and validates connectivity
 func (pm *PoolManager) InitializePool(connectionString string, config ...PoolConfig) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -65,7 +67,7 @@ func (pm *PoolManager) InitializePool(connectionString string, config ...PoolCon
 		pm.config = config[0]
 	}
 
-	// Create database connection pool with lazy loading
+	// Create database connection pool
 	var err error
 	pm.db, err = sql.Open("postgres", pm.connectionString)
 	if err != nil {
@@ -78,8 +80,19 @@ func (pm *PoolManager) InitializePool(connectionString string, config ...PoolCon
 	pm.db.SetConnMaxLifetime(pm.config.ConnMaxLifetime)
 	pm.db.SetConnMaxIdleTime(pm.config.ConnMaxIdleTime)
 
+	// Test connectivity immediately with configured timeout
+	testCtx, cancel := context.WithTimeout(context.Background(), pm.config.ConnTimeout)
+	defer cancel()
+
+	if err := pm.db.PingContext(testCtx); err != nil {
+		// Clean up on connection failure
+		pm.db.Close()
+		pm.db = nil
+		return fmt.Errorf("failed to connect to database: %v", err)
+	}
+
 	pm.initialized = true
-	log.Printf("Database connection pool initialized (max_open: %d, max_idle: %d)",
+	log.Printf("Database connection pool initialized and tested (max_open: %d, max_idle: %d)",
 		pm.config.MaxOpenConns, pm.config.MaxIdleConns)
 
 	return nil
@@ -99,7 +112,7 @@ func (pm *PoolManager) GetConnection(ctx context.Context) (*sql.DB, error) {
 	}
 
 	// Use ping with timeout to test connection
-	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	pingCtx, cancel := context.WithTimeout(ctx, pm.config.ConnTimeout)
 	defer cancel()
 
 	if err := pm.db.PingContext(pingCtx); err != nil {
