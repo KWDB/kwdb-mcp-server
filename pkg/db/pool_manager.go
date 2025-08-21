@@ -51,7 +51,7 @@ func GetPoolManager() *PoolManager {
 	return globalPoolMgr
 }
 
-// InitializePool initializes connection pool and validates connectivity
+// InitializePool initializes connection pool with lazy loading (no immediate connectivity test)
 func (pm *PoolManager) InitializePool(connectionString string, config ...PoolConfig) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -67,7 +67,7 @@ func (pm *PoolManager) InitializePool(connectionString string, config ...PoolCon
 		pm.config = config[0]
 	}
 
-	// Create database connection pool
+	// Create database connection pool with lazy loading
 	var err error
 	pm.db, err = sql.Open("postgres", pm.connectionString)
 	if err != nil {
@@ -80,19 +80,8 @@ func (pm *PoolManager) InitializePool(connectionString string, config ...PoolCon
 	pm.db.SetConnMaxLifetime(pm.config.ConnMaxLifetime)
 	pm.db.SetConnMaxIdleTime(pm.config.ConnMaxIdleTime)
 
-	// Test connectivity immediately with configured timeout
-	testCtx, cancel := context.WithTimeout(context.Background(), pm.config.ConnTimeout)
-	defer cancel()
-
-	if err := pm.db.PingContext(testCtx); err != nil {
-		// Clean up on connection failure
-		pm.db.Close()
-		pm.db = nil
-		return fmt.Errorf("failed to connect to database: %v", err)
-	}
-
 	pm.initialized = true
-	log.Printf("Database connection pool initialized and tested (max_open: %d, max_idle: %d)",
+	log.Printf("Database connection pool initialized (max_open: %d, max_idle: %d)",
 		pm.config.MaxOpenConns, pm.config.MaxIdleConns)
 
 	return nil
