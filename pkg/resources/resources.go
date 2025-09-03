@@ -19,12 +19,13 @@ func RegisterStaticResources(s *server.MCPServer) {
 
 // RegisterDynamicResourceTemplates registers dynamic resource templates and concrete resources
 func RegisterDynamicResourceTemplates(s *server.MCPServer) {
-	// Attempt to dynamically register concrete database and table resources
-	registerDynamicDatabaseAndTableResources(s)
-
-	// Keep template resources as fallback
+	// Always register template resources first
 	registerDBInfoResourceTemplate(s)
 	registerTableResourceTemplate(s)
+
+	// Attempt to dynamically register concrete database and table resources
+	// This provides better UX when database is available, but gracefully falls back to templates
+	registerDynamicDatabaseAndTableResources(s)
 }
 
 // RegisterResources maintains compatibility but switches to lazy loading
@@ -81,17 +82,24 @@ func registerKWDBProductInfo(s *server.MCPServer) {
 
 // registerDynamicDatabaseAndTableResources 动态注册数据库和表资源
 func registerDynamicDatabaseAndTableResources(s *server.MCPServer) {
-
+	// Try to register concrete table resources if database is available
 	if tables, err := db.GetTablesWithContext(context.Background()); err == nil {
+		fmt.Printf("Registering %d specific table resources...\n", len(tables))
 		for _, tableName := range tables {
 			registerTableResource(s, tableName)
 		}
+	} else {
+		fmt.Printf("Database not available for dynamic table registration: %v\n", err)
 	}
 
+	// Try to register concrete database resources if database is available
 	if databases, err := db.GetDatabases(); err == nil {
+		fmt.Printf("Registering %d specific database resources...\n", len(databases))
 		for _, dbName := range databases {
 			registerSpecificDBInfoResource(s, dbName)
 		}
+	} else {
+		fmt.Printf("Database not available for dynamic database registration: %v\n", err)
 	}
 }
 
@@ -393,6 +401,11 @@ func registerTableResourceTemplate(s *server.MCPServer) {
 			// Add table_type if available
 			if tableType, ok := tableMetadata["table_type"]; ok {
 				dataMap["table_type"] = tableType
+			}
+
+			// Add comment if available
+			if comment, ok := tableMetadata["comment"]; ok {
+				dataMap["comment"] = comment
 			}
 
 			// Add storage_engine if available
