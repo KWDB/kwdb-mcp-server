@@ -89,8 +89,6 @@ func registerDynamicDatabaseAndTableResources(s *server.MCPServer) {
 			registerTableResource(s, tableName)
 		}
 	}
-	// Silently fall back to template resources if database is not available
-
 	// Try to register concrete database resources if database is available
 	if databases, err := db.GetDatabases(); err == nil {
 		// Successfully registered specific database resources
@@ -98,7 +96,6 @@ func registerDynamicDatabaseAndTableResources(s *server.MCPServer) {
 			registerSpecificDBInfoResource(s, dbName)
 		}
 	}
-	// Silently fall back to template resources if database is not available
 }
 
 // registerSpecificDBInfoResource registers a resource for a specific database
