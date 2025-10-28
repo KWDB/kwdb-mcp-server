@@ -84,22 +84,17 @@ func registerKWDBProductInfo(s *server.MCPServer) {
 func registerDynamicDatabaseAndTableResources(s *server.MCPServer) {
 	// Try to register concrete table resources if database is available
 	if tables, err := db.GetTablesWithContext(context.Background()); err == nil {
-		fmt.Printf("Registering %d specific table resources...\n", len(tables))
+		// Successfully registered specific table resources
 		for _, tableName := range tables {
 			registerTableResource(s, tableName)
 		}
-	} else {
-		fmt.Printf("Database not available for dynamic table registration: %v\n", err)
 	}
-
 	// Try to register concrete database resources if database is available
 	if databases, err := db.GetDatabases(); err == nil {
-		fmt.Printf("Registering %d specific database resources...\n", len(databases))
+		// Successfully registered specific database resources
 		for _, dbName := range databases {
 			registerSpecificDBInfoResource(s, dbName)
 		}
-	} else {
-		fmt.Printf("Database not available for dynamic database registration: %v\n", err)
 	}
 }
 
