@@ -49,40 +49,54 @@ func registerReadQueryTool(s *server.MCPServer) {
 
 		// 使用连接池执行查询
 		result, err := db.ExecuteQueryWithContext(queryCtx, sql)
+		
+		var response map[string]interface{}
+		
 		if err != nil {
-			// 提供更详细的错误信息
+			// 将错误作为正常结果返回，而不是抛出异常
+			errorMessage := err.Error()
 			if queryCtx.Err() == context.DeadlineExceeded {
-				return mcp.NewToolResultError("Query timeout: the query took too long to execute"), nil
+				errorMessage = "Query timeout: the query took too long to execute"
 			}
-			return mcp.NewToolResultErrorFromErr("Database connection or query error", err), nil
-		}
-
-		// Extract column names (if result is not empty)
-		var columns []string
-		if len(result) > 0 {
-			columns = make([]string, 0, len(result[0]))
-			for col := range result[0] {
-				columns = append(columns, col)
-			}
-		}
-
-		// Standardized response
-		response := map[string]interface{}{
-			"status": "success",
-			"type":   "query_result",
-			"data": map[string]interface{}{
-				"result_type": "table",
-				"columns":     columns,
-				"rows":        result,
-				"metadata": map[string]interface{}{
-					"affected_rows":  0,
-					"row_count":      len(result),
-					"query":          sql,
+			
+			response = map[string]interface{}{
+				"status": "error",
+				"type":   "query_result",
+				"data":   nil,
+				"error": map[string]interface{}{
+					"message": errorMessage,
+					"query":   sql,
 					"original_query": originalSQL,
-					"auto_limited":   sql != originalSQL,
 				},
-			},
-			"error": nil,
+			}
+		} else {
+			// Extract column names (if result is not empty)
+			var columns []string
+			if len(result) > 0 {
+				columns = make([]string, 0, len(result[0]))
+				for col := range result[0] {
+					columns = append(columns, col)
+				}
+			}
+
+			// Standardized success response
+			response = map[string]interface{}{
+				"status": "success",
+				"type":   "query_result",
+				"data": map[string]interface{}{
+					"result_type": "table",
+					"columns":     columns,
+					"rows":        result,
+					"metadata": map[string]interface{}{
+						"affected_rows":  0,
+						"row_count":      len(result),
+						"query":          sql,
+						"original_query": originalSQL,
+						"auto_limited":   sql != originalSQL,
+					},
+				},
+				"error": nil,
+			}
 		}
 
 		// Convert result to JSON
@@ -116,26 +130,39 @@ func registerWriteQueryTool(s *server.MCPServer) {
 
 		// 使用连接池执行写操作
 		rowsAffected, err := db.ExecuteWriteQueryWithContext(queryCtx, sql)
+		
+		var response map[string]interface{}
+		
 		if err != nil {
-			// 提供更详细的错误信息
+			// 将错误作为正常结果返回，而不是抛出异常
+			errorMessage := err.Error()
 			if queryCtx.Err() == context.DeadlineExceeded {
-				return mcp.NewToolResultError("Write operation timeout: the operation took too long to complete"), nil
+				errorMessage = "Write operation timeout: the operation took too long to complete"
 			}
-			return mcp.NewToolResultErrorFromErr("Database connection or write operation error", err), nil
-		}
-
-		// Standardized response
-		response := map[string]interface{}{
-			"status": "success",
-			"type":   "write_result",
-			"data": map[string]interface{}{
-				"result_type":   "write",
-				"affected_rows": rowsAffected,
-				"metadata": map[string]interface{}{
-					"query": sql,
+			
+			response = map[string]interface{}{
+				"status": "error",
+				"type":   "write_result",
+				"data":   nil,
+				"error": map[string]interface{}{
+					"message": errorMessage,
+					"query":   sql,
 				},
-			},
-			"error": nil,
+			}
+		} else {
+			// Standardized success response
+			response = map[string]interface{}{
+				"status": "success",
+				"type":   "write_result",
+				"data": map[string]interface{}{
+					"result_type":   "write",
+					"affected_rows": rowsAffected,
+					"metadata": map[string]interface{}{
+						"query": sql,
+					},
+				},
+				"error": nil,
+			}
 		}
 
 		// Convert result to JSON
