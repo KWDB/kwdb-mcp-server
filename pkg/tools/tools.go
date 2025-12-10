@@ -38,7 +38,7 @@ func registerReadQueryTool(s *server.MCPServer) {
 		originalSQL := sql
 
 		// Add timeout control
-		queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
 		// Check if the query is a SELECT statement without LIMIT
@@ -53,18 +53,18 @@ func registerReadQueryTool(s *server.MCPServer) {
 		var response map[string]interface{}
 		
 		if err != nil {
-			// 将错误作为正常结果返回，而不是抛出异常
-			errorMessage := err.Error()
+			// 数据库连接超时直接报错，SQL语法错误等返回正常结果
 			if queryCtx.Err() == context.DeadlineExceeded {
-				errorMessage = "Query timeout: the query took too long to execute"
+				return mcp.NewToolResultError("Query timeout: the query took too long to execute"), nil
 			}
 			
+			// 其他错误（如SQL语法错误）作为正常结果返回
 			response = map[string]interface{}{
 				"status": "error",
 				"type":   "query_result",
 				"data":   nil,
 				"error": map[string]interface{}{
-					"message": errorMessage,
+					"message": err.Error(),
 					"query":   sql,
 					"original_query": originalSQL,
 				},
@@ -125,7 +125,7 @@ func registerWriteQueryTool(s *server.MCPServer) {
 		sql := request.GetString("sql", "")
 
 		// 添加超时控制
-		queryCtx, cancel := context.WithTimeout(ctx, 60*time.Second) // 写操作给更长的超时时间
+		queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
 		// 使用连接池执行写操作
@@ -134,18 +134,18 @@ func registerWriteQueryTool(s *server.MCPServer) {
 		var response map[string]interface{}
 		
 		if err != nil {
-			// 将错误作为正常结果返回，而不是抛出异常
-			errorMessage := err.Error()
+			// 数据库连接超时直接报错，SQL语法错误等返回正常结果
 			if queryCtx.Err() == context.DeadlineExceeded {
-				errorMessage = "Write operation timeout: the operation took too long to complete"
+				return mcp.NewToolResultError("Write operation timeout: the operation took too long to complete"), nil
 			}
 			
+			// 其他错误（如SQL语法错误）作为正常结果返回
 			response = map[string]interface{}{
 				"status": "error",
 				"type":   "write_result",
 				"data":   nil,
 				"error": map[string]interface{}{
-					"message": errorMessage,
+					"message": err.Error(),
 					"query":   sql,
 				},
 			}
