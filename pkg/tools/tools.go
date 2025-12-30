@@ -45,7 +45,6 @@ func registerReadQueryTool(s *server.MCPServer) {
 		// 使用连接池执行查询
 		result, err := db.ExecuteQueryWithContext(ctx, sql)
 		if err != nil {
-			// 所有错误（包括SQL语法错误和连接错误）都返回错误
 			return mcp.NewToolResultErrorFromErr("Query execution failed", err), nil
 		}
 
@@ -105,7 +104,6 @@ func registerWriteQueryTool(s *server.MCPServer) {
 		// 使用连接池执行写操作
 		rowsAffected, err := db.ExecuteWriteQueryWithContext(ctx, sql)
 		if err != nil {
-			// 所有错误（包括SQL语法错误和连接错误）都返回错误
 			return mcp.NewToolResultErrorFromErr("Write operation failed", err), nil
 		}
 
