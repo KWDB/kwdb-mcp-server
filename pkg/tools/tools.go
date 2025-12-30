@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -37,10 +36,6 @@ func registerReadQueryTool(s *server.MCPServer) {
 		sql := request.GetString("sql", "")
 		originalSQL := sql
 
-		// Add timeout control
-		queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-
 		// Check if the query is a SELECT statement without LIMIT
 		if isSelectWithoutLimit(sql) {
 			// Add LIMIT 20 to the query
@@ -48,55 +43,38 @@ func registerReadQueryTool(s *server.MCPServer) {
 		}
 
 		// 使用连接池执行查询
-		result, err := db.ExecuteQueryWithContext(queryCtx, sql)
-		
-		var response map[string]interface{}
-		
+		result, err := db.ExecuteQueryWithContext(ctx, sql)
 		if err != nil {
-			// 数据库连接超时直接报错，SQL语法错误等返回正常结果
-			if queryCtx.Err() == context.DeadlineExceeded {
-				return mcp.NewToolResultError("Query timeout: the query took too long to execute"), nil
-			}
-			
-			// 其他错误（如SQL语法错误）作为正常结果返回
-			response = map[string]interface{}{
-				"status": "error",
-				"type":   "query_result",
-				"data":   nil,
-				"error": map[string]interface{}{
-					"message": err.Error(),
-					"query":   sql,
-					"original_query": originalSQL,
-				},
-			}
-		} else {
-			// Extract column names (if result is not empty)
-			var columns []string
-			if len(result) > 0 {
-				columns = make([]string, 0, len(result[0]))
-				for col := range result[0] {
-					columns = append(columns, col)
-				}
-			}
+			// 所有错误（包括SQL语法错误和连接错误）都返回错误
+			return mcp.NewToolResultErrorFromErr("Query execution failed", err), nil
+		}
 
-			// Standardized success response
-			response = map[string]interface{}{
-				"status": "success",
-				"type":   "query_result",
-				"data": map[string]interface{}{
-					"result_type": "table",
-					"columns":     columns,
-					"rows":        result,
-					"metadata": map[string]interface{}{
-						"affected_rows":  0,
-						"row_count":      len(result),
-						"query":          sql,
-						"original_query": originalSQL,
-						"auto_limited":   sql != originalSQL,
-					},
-				},
-				"error": nil,
+		// Extract column names (if result is not empty)
+		var columns []string
+		if len(result) > 0 {
+			columns = make([]string, 0, len(result[0]))
+			for col := range result[0] {
+				columns = append(columns, col)
 			}
+		}
+
+		// Standardized success response
+		response := map[string]interface{}{
+			"status": "success",
+			"type":   "query_result",
+			"data": map[string]interface{}{
+				"result_type": "table",
+				"columns":     columns,
+				"rows":        result,
+				"metadata": map[string]interface{}{
+					"affected_rows":  0,
+					"row_count":      len(result),
+					"query":          sql,
+					"original_query": originalSQL,
+					"auto_limited":   sql != originalSQL,
+				},
+			},
+			"error": nil,
 		}
 
 		// Convert result to JSON
@@ -124,45 +102,25 @@ func registerWriteQueryTool(s *server.MCPServer) {
 	s.AddTool(writeQueryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		sql := request.GetString("sql", "")
 
-		// 添加超时控制
-		queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-
 		// 使用连接池执行写操作
-		rowsAffected, err := db.ExecuteWriteQueryWithContext(queryCtx, sql)
-		
-		var response map[string]interface{}
-		
+		rowsAffected, err := db.ExecuteWriteQueryWithContext(ctx, sql)
 		if err != nil {
-			// 数据库连接超时直接报错，SQL语法错误等返回正常结果
-			if queryCtx.Err() == context.DeadlineExceeded {
-				return mcp.NewToolResultError("Write operation timeout: the operation took too long to complete"), nil
-			}
-			
-			// 其他错误（如SQL语法错误）作为正常结果返回
-			response = map[string]interface{}{
-				"status": "error",
-				"type":   "write_result",
-				"data":   nil,
-				"error": map[string]interface{}{
-					"message": err.Error(),
-					"query":   sql,
+			// 所有错误（包括SQL语法错误和连接错误）都返回错误
+			return mcp.NewToolResultErrorFromErr("Write operation failed", err), nil
+		}
+
+		// Standardized success response
+		response := map[string]interface{}{
+			"status": "success",
+			"type":   "write_result",
+			"data": map[string]interface{}{
+				"result_type":   "write",
+				"affected_rows": rowsAffected,
+				"metadata": map[string]interface{}{
+					"query": sql,
 				},
-			}
-		} else {
-			// Standardized success response
-			response = map[string]interface{}{
-				"status": "success",
-				"type":   "write_result",
-				"data": map[string]interface{}{
-					"result_type":   "write",
-					"affected_rows": rowsAffected,
-					"metadata": map[string]interface{}{
-						"query": sql,
-					},
-				},
-				"error": nil,
-			}
+			},
+			"error": nil,
 		}
 
 		// Convert result to JSON
