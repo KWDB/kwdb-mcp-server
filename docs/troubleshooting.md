@@ -10,6 +10,7 @@ id: troubleshooting
 如果无法连接 KWDB 数据库，请从以下几个方便排查问题：
 
 - 检查数据库连接字符串是否正确。
+- **无状态多租户模式**：若工具报错 `missing X-Database-URI header` 或与连接相关的错误，且启动时未传连接串，请确认每次调用 `read-query` / `write-query` 时是否在请求中携带了 **`X-Database-URI`** 请求头，且其值为有效的 PostgreSQL 连接串。
 - 检查用户主机是否可以正常访问 KWDB 数据库。
 - 检查数据库用户是否具有足够的权限。
 - 检查 LLM Agent 中 KWDB MCP Server 配置中数据库的连接地址否正确。

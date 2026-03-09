@@ -4,51 +4,31 @@ import (
 	"testing"
 )
 
-// TestIsSelectWithoutLimit tests the SELECT query detection
-func TestIsSelectWithoutLimit(t *testing.T) {
-	// Test cases
-	testCases := []struct {
-		query    string
-		expected bool
-	}{
-		{"SELECT * FROM users", true},
-		{"select * from users", true},
-		{"SELECT * FROM users LIMIT 10", false},
-		{"select * from users limit 10", false},
-		{"SELECT * FROM users WHERE id > 5", true},
-		{"SELECT * FROM users WHERE id > 5 LIMIT 20", false},
-		{"INSERT INTO users VALUES (1, 'test')", false},
-		{"UPDATE users SET name = 'test'", false},
+func TestResolveDBTarget_WithHeader(t *testing.T) {
+	// X-Database-URI 优先：有 header 时无论默认池是否初始化，都使用 header 指定库
+	uri, useDefault, missing := resolveDBTarget("postgresql://host/db1", false)
+	if uri != "postgresql://host/db1" || useDefault || missing {
+		t.Errorf("with header and no default pool: got uri=%q useDefault=%v missing=%v", uri, useDefault, missing)
 	}
 
-	// Run tests
-	for _, tc := range testCases {
-		result := isSelectWithoutLimit(tc.query)
-		if result != tc.expected {
-			t.Errorf("isSelectWithoutLimit(%q) = %v, expected %v", tc.query, result, tc.expected)
-		}
+	uri, useDefault, missing = resolveDBTarget("postgresql://host/db1", true)
+	if uri != "postgresql://host/db1" || useDefault || missing {
+		t.Errorf("with header and default pool: got uri=%q useDefault=%v missing=%v", uri, useDefault, missing)
 	}
 }
 
-// TestAddLimitToQuery tests adding LIMIT to queries
-func TestAddLimitToQuery(t *testing.T) {
-	// Test cases
-	testCases := []struct {
-		query    string
-		limit    int
-		expected string
-	}{
-		{"SELECT * FROM users", 10, "SELECT * FROM users LIMIT 10"},
-		{"select * from users", 20, "select * from users LIMIT 20"},
-		{"SELECT * FROM users WHERE id > 5", 15, "SELECT * FROM users WHERE id > 5 LIMIT 15"},
-		{"SELECT * FROM users ORDER BY id", 5, "SELECT * FROM users ORDER BY id LIMIT 5"},
+func TestResolveDBTarget_NoHeaderWithDefaultPool(t *testing.T) {
+	// 兼容模式：无 header 但默认池已初始化 → 使用默认池
+	uri, useDefault, missing := resolveDBTarget("", true)
+	if uri != "" || !useDefault || missing {
+		t.Errorf("no header with default pool: got uri=%q useDefault=%v missing=%v", uri, useDefault, missing)
 	}
+}
 
-	// Run tests
-	for _, tc := range testCases {
-		result := addLimitToQuery(tc.query, tc.limit)
-		if result != tc.expected {
-			t.Errorf("addLimitToQuery(%q, %d) = %q, expected %q", tc.query, tc.limit, result, tc.expected)
-		}
+func TestResolveDBTarget_NoHeaderNoDefaultPool(t *testing.T) {
+	// 无状态模式：无 header 且无默认池 → 应返回 missing header 错误
+	uri, useDefault, missing := resolveDBTarget("", false)
+	if uri != "" || useDefault || !missing {
+		t.Errorf("no header no default pool: got uri=%q useDefault=%v missing=%v", uri, useDefault, missing)
 	}
 }

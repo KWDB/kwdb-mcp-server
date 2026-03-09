@@ -8,28 +8,26 @@ import (
 
 // TestCreateServer tests the server creation process
 func TestCreateServer(t *testing.T) {
-	// Test with valid connection string
-	s, err := CreateServer("postgresql://kwdb:Kaiwudb%40123@localhost:26257/db_shig")
+	// Stateless mode (no default connection string)
+	s, err := CreateServer("")
 	if err != nil {
-		t.Fatalf("CreateServer failed with valid connection string: %v", err)
+		t.Fatalf("CreateServer failed in stateless mode: %v", err)
 	}
-	defer Cleanup()
-
-	// Verify server was created
 	if s == nil {
-		t.Fatal("CreateServer returned nil server")
+		t.Fatal("CreateServer returned nil server in stateless mode")
 	}
+	Cleanup()
 
-	// Test with invalid connection string - should succeed in creation but fail on actual use
+	// Single-DB compatible mode with (potentially invalid) connection string.
+	// InitDB uses lazy loading, so this should succeed even if the DSN is invalid.
 	s2, err := CreateServer("postgresql://invalid:invalid@localhost:26257/nonexistent")
 	if err != nil {
-		t.Fatalf("CreateServer should succeed with invalid connection string (lazy loading): %v", err)
+		t.Fatalf("CreateServer failed with connection string: %v", err)
 	}
-	defer Cleanup()
-
 	if s2 == nil {
-		t.Fatal("CreateServer should return non-nil server even with invalid connection")
+		t.Fatal("CreateServer returned nil server with connection string")
 	}
+	Cleanup()
 }
 
 // TestCleanup tests the cleanup process

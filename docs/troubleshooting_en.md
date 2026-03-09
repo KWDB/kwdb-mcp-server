@@ -10,6 +10,7 @@ id: troubleshooting_en
 If you fail to connect to the KWDB database, troubleshoot the issue in the following aspects:
 
 - Check whether the database connection string is correct.
+- Stateless multi-tenant mode: If the tool returns `missing X-Database-URI header` or connection-related errors and the server was started without a connection string, ensure that every `read-query` / `write-query` call sends the **`X-Database-URI`** request header with a valid PostgreSQL connection string.
 - Check whether the user can access to the KWDB database.
 - Check whether the user has appropriate privileges.
 - Check whether the KWDB database address in the KWDB MCP Server configuration of the LLM Agent is correct.
