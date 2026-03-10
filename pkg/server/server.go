@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"log"
 
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
@@ -72,10 +73,55 @@ func ServeSSE(s *server.MCPServer, addr string, baseURL string) error {
 	return sseServer.Start(addr)
 }
 
-// ServeHTTP starts the server using HTTP (streamable-http) mode
-func ServeHTTP(s *server.MCPServer, addr string) error {
-	httpServer := server.NewStreamableHTTPServer(s)
-	log.Printf("HTTP server listening on %s/mcp", addr)
+// HTTPTLSConfig controls TLS for HTTP transport.
+// When both CertFile and KeyFile are set, ServeHTTP uses mcp-go's WithTLSCert
+// so StreamableHTTPServer starts with ListenAndServeTLS.
+type HTTPTLSConfig struct {
+	CertFile string
+	KeyFile  string
+}
+
+// Enabled returns true when both certificate and private key are configured.
+func (c *HTTPTLSConfig) Enabled() bool {
+	return c != nil && c.CertFile != "" && c.KeyFile != ""
+}
+
+// Validate checks whether the TLS configuration is internally consistent.
+// Only when both are empty, or both are non-empty, is the config valid.
+func (c *HTTPTLSConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if c.CertFile == "" && c.KeyFile == "" {
+		return nil
+	}
+	if c.CertFile == "" {
+		return errors.New("tls certificate file is required when tls key file is set")
+	}
+	if c.KeyFile == "" {
+		return errors.New("tls key file is required when tls certificate file is set")
+	}
+	return nil
+}
+
+// ServeHTTP starts the server using HTTP (streamable-http) mode.
+// If tlsConfig is enabled, mcp-go's StreamableHTTPServer is started with
+// server.WithTLSCert (TLS validation and ListenAndServeTLS are handled inside mcp-go).
+func ServeHTTP(s *server.MCPServer, addr string, tlsConfig *HTTPTLSConfig) error {
+	if err := tlsConfig.Validate(); err != nil {
+		return err
+	}
+
+	var httpServer *server.StreamableHTTPServer
+	if tlsConfig != nil && tlsConfig.Enabled() {
+		httpServer = server.NewStreamableHTTPServer(s,
+			server.WithTLSCert(tlsConfig.CertFile, tlsConfig.KeyFile),
+		)
+		log.Printf("HTTPS server listening on %s/mcp", addr)
+	} else {
+		httpServer = server.NewStreamableHTTPServer(s)
+		log.Printf("HTTP server listening on %s/mcp", addr)
+	}
 	return httpServer.Start(addr)
 }
 

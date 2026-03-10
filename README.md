@@ -296,6 +296,12 @@ Parameters:
 
 - The HTTP service listens on `0.0.0.0:<port>` by default, and the MCP endpoint is `http://<host>:<port>/mcp`. When started without a connection string (stateless mode), clients must send the `X-Database-URI` request header with each `read-query` / `write-query` call.
 
+- **HTTPS (TLS)** is optional: pass both `--tls-cert` and `--tls-key` with PEM file paths. The server then listens with TLS; the MCP endpoint is `https://<host>:<port>/mcp`. If only one of the two flags is set, the process exits with an error. TLS is implemented via [mcp-go](https://github.com/mark3labs/mcp-go) `WithTLSCert` (requires mcp-go v0.39+).
+
+    ```shell
+    ./bin/kwdb-mcp-server -t http -p 8443 --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem "postgresql://..."
+    ```
+
 Parameters:
 
 - `-t` or `--transport`: Transport type, supports `stdio`, `sse`, `http`.
@@ -303,6 +309,7 @@ Parameters:
   - `sse`: SSE mode (deprecated)
   - `http`: HTTP mode (recommended)
 - `-p` or `--port`: Listening port for KWDB MCP Server, default is `8080`.
+- `--tls-cert` / `--tls-key`: Optional. PEM certificate and private key for HTTP mode HTTPS. Both must be set together; only applies when `-t http`.
 - `username`: Username for connecting to the KWDB database.
 - `password`: Password for authentication.
 - `hostname`: IP address of the KWDB database.

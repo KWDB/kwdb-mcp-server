@@ -288,6 +288,12 @@ KWDB MCP Server 支持以下三种传输机制：
 
 - HTTP 服务默认监听 `0.0.0.0:<port>`，MCP 端点为 `http://<host>:<port>/mcp`。若以无连接串方式启动（无状态多租户模式），客户端在每次 `read-query` / `write-query` 调用时需携带 `X-Database-URI` 请求头。
 
+- **HTTPS（TLS）** 为可选：同时传入 `--tls-cert` 与 `--tls-key`（PEM 证书与私钥路径）即启用 TLS，端点为 `https://<host>:<port>/mcp`。只传其中一个会直接报错退出。TLS 由 [mcp-go](https://github.com/mark3labs/mcp-go) 的 `WithTLSCert` 提供（需 mcp-go v0.39+）。
+
+    ```shell
+    ./bin/kwdb-mcp-server -t http -p 8443 --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem "postgresql://..."
+    ```
+
 参数说明：
 
 - `-t` 或 `--transport`：传输类型，支持 `stdio`、`sse`、`http`。
@@ -295,6 +301,7 @@ KWDB MCP Server 支持以下三种传输机制：
   - `sse`：SSE 模式（即将弃用）
   - `http`：HTTP 模式（推荐）
 - `-p` 或 `--port`：KWDB MCP Server 的监听端口，默认为 `8080`。
+- `--tls-cert` / `--tls-key`：可选。HTTP 模式下的 PEM 证书与私钥，须同时指定；仅在与 `-t http` 一起使用时生效。
 - `username`：连接 KWDB 数据库的用户名。
 - `password`：身份验证时使用的密码。
 - `hostname`：KWDB 数据库的 IP 地址。
