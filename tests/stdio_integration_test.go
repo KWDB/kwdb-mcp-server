@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -233,6 +234,23 @@ func TestMCPServer(t *testing.T) {
 
 	// ==== SQL查询性能测试：1秒超时判定为失败 ====
 
+	// 回归：不带 X-Database-URI 时，应为工具级结果（兼容模式成功 或 无状态模式返回 missing header）
+	if containsTool(tools.Tools, "read-query") {
+		t.Log("Testing read-query without X-Database-URI header (compat vs stateless)...")
+		reqNoHeader := mcp.CallToolRequest{}
+		reqNoHeader.Params.Name = "read-query"
+		reqNoHeader.Params.Arguments = map[string]interface{}{"sql": "SELECT 1"}
+		resNoHeader, errNoHeader := c.CallTool(ctx, reqNoHeader)
+		if errNoHeader != nil {
+			t.Fatalf("read-query without header: expected tool-level result, got transport error: %v", errNoHeader)
+		}
+		if resNoHeader != nil && resNoHeader.IsError && len(resNoHeader.Content) > 0 {
+			if c, ok := resNoHeader.Content[0].(mcp.TextContent); ok && !strings.Contains(c.Text, "missing X-Database-URI header") {
+				t.Logf("read-query without header returned error content: %s", c.Text)
+			}
+		}
+	}
+
 	// 测试读查询 - 1秒超时
 	if containsTool(tools.Tools, "read-query") {
 		toolName := "read-query"
@@ -246,6 +264,10 @@ func TestMCPServer(t *testing.T) {
 		callToolRequest.Params.Name = toolName
 		callToolRequest.Params.Arguments = map[string]interface{}{
 			"sql": "SELECT 1", // 简单查询
+		}
+		if connectionString != "" {
+			callToolRequest.Header = make(http.Header)
+			callToolRequest.Header.Set("X-Database-URI", connectionString)
 		}
 
 		startTime := time.Now()
@@ -284,6 +306,10 @@ func TestMCPServer(t *testing.T) {
 		callToolRequest.Params.Arguments = map[string]interface{}{
 			"sql": "CREATE TABLE temp (ts TIMESTAMP NOT NULL, value FLOAT) TAGS (sensor_id INT NOT NULL) PRIMARY TAGS (sensor_id) RETENTIONS 20D PARTITION INTERVAL 5D;",
 		}
+		if connectionString != "" {
+			callToolRequest.Header = make(http.Header)
+			callToolRequest.Header.Set("X-Database-URI", connectionString)
+		}
 
 		startTime := time.Now()
 		result, err := c.CallTool(writeCtx, callToolRequest)
@@ -313,6 +339,10 @@ func TestMCPServer(t *testing.T) {
 			dropRequest.Params.Name = toolName
 			dropRequest.Params.Arguments = map[string]interface{}{
 				"sql": "DROP TABLE IF EXISTS temp;",
+			}
+			if connectionString != "" {
+				dropRequest.Header = make(http.Header)
+				dropRequest.Header.Set("X-Database-URI", connectionString)
 			}
 
 			dropStartTime := time.Now()

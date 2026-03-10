@@ -34,13 +34,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Get remaining non-flag arguments
-	args := flag.Args()
-	if len(args) < 1 {
-		log.Fatalf("Usage: %s [options] <postgresql-connection-string>", os.Args[0])
-	}
-	connectionString := args[0]
-
 	// Check if port is valid
 	portNum, err := strconv.Atoi(port)
 	if err != nil || port == "" || port[0] == '-' || portNum < 0 || portNum > 65535 {
@@ -48,7 +41,14 @@ func main() {
 	}
 	addr := ":" + port
 
-	// Create server - won't exit due to database connection failure
+	// Get remaining non-flag arguments (optional connection string)
+	args := flag.Args()
+	var connectionString string
+	if len(args) > 0 {
+		connectionString = args[0]
+	}
+
+	// Create server - if connectionString is empty, tools must use X-Database-URI
 	s, err := server.CreateServer(connectionString)
 	if err != nil {
 		transport = strings.ToLower(transport)

@@ -13,6 +13,14 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// sseDBURI 返回集成测试用的数据库 URI（环境变量优先）
+func sseDBURI() string {
+	if u := os.Getenv("KWDB_DEFAULT_URI"); u != "" {
+		return u
+	}
+	return os.Getenv("CONNECTION_STRING")
+}
+
 func TestSSEServer(t *testing.T) {
 	// Skip if running in CI environment
 	if os.Getenv("CI") == "true" {
@@ -343,6 +351,24 @@ func TestSSEServer(t *testing.T) {
 		}
 	}
 
+	// 回归：不带 X-Database-URI 时，应为工具级结果（兼容模式成功 或 无状态模式返回 missing header）
+	if containsToolSSE(tools.Tools, "read-query") {
+		t.Log("Testing read-query without X-Database-URI header (compat vs stateless)...")
+		reqNoHeader := mcp.CallToolRequest{}
+		reqNoHeader.Params.Name = "read-query"
+		reqNoHeader.Params.Arguments = map[string]interface{}{"sql": "SELECT 1"}
+		resNoHeader, errNoHeader := c.CallTool(ctx, reqNoHeader)
+		if errNoHeader != nil {
+			t.Fatalf("read-query without header: expected tool-level result, got transport error: %v", errNoHeader)
+		}
+		if resNoHeader != nil && resNoHeader.IsError && len(resNoHeader.Content) > 0 {
+			if c, ok := resNoHeader.Content[0].(mcp.TextContent); ok && !strings.Contains(c.Text, "missing X-Database-URI header") {
+				t.Logf("read-query without header returned error content: %s", c.Text)
+			}
+		}
+	}
+
+	dbURI := sseDBURI()
 	// 测试读查询工具 - 1秒超时
 	if containsToolSSE(tools.Tools, "read-query") {
 		toolName := "read-query"
@@ -356,6 +382,10 @@ func TestSSEServer(t *testing.T) {
 		callToolRequest.Params.Name = toolName
 		callToolRequest.Params.Arguments = map[string]interface{}{
 			"sql": "SELECT 1", // 简单查询
+		}
+		if dbURI != "" {
+			callToolRequest.Header = make(http.Header)
+			callToolRequest.Header.Set("X-Database-URI", dbURI)
 		}
 
 		startTime := time.Now()
@@ -389,6 +419,10 @@ func TestSSEServer(t *testing.T) {
 		callToolRequest.Params.Arguments = map[string]interface{}{
 			"sql": fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT, name TEXT)", tempTableName),
 		}
+		if dbURI != "" {
+			callToolRequest.Header = make(http.Header)
+			callToolRequest.Header.Set("X-Database-URI", dbURI)
+		}
 
 		startTime := time.Now()
 		_, err := c.CallTool(queryCtx, callToolRequest)
@@ -407,6 +441,10 @@ func TestSSEServer(t *testing.T) {
 			cleanupRequest.Params.Name = toolName
 			cleanupRequest.Params.Arguments = map[string]interface{}{
 				"sql": fmt.Sprintf("DROP TABLE IF EXISTS %s", tempTableName),
+			}
+			if dbURI != "" {
+				cleanupRequest.Header = make(http.Header)
+				cleanupRequest.Header.Set("X-Database-URI", dbURI)
 			}
 
 			_, cleanupErr := c.CallTool(ctx, cleanupRequest)

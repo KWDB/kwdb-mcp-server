@@ -248,16 +248,122 @@ func ExecuteWriteQueryWithContext(ctx context.Context, query string) (int64, err
 	return rowsAffected, err
 }
 
+// ExecuteQueryWithURI 使用指定数据库 URI 执行只读查询。
+// 该方法用于无状态多租户场景，每次调用都必须提供完整的数据库 URI。
+func ExecuteQueryWithURI(ctx context.Context, connectionString, query string) ([]map[string]interface{}, error) {
+	// 检查查询类型
+	isWrite, opName := ClassifyQuery(query)
+	if isWrite {
+		return nil, fmt.Errorf("write operation not allowed in read-query: %s", opName)
+	}
+
+	var result []map[string]interface{}
+
+	multiPoolMgr := GetMultiPoolManager()
+	err := multiPoolMgr.ExecuteWithURI(ctx, connectionString, func(db *sql.DB) error {
+		rows, err := db.QueryContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("query execution failed: %v", err)
+		}
+		defer rows.Close()
+
+		// 获取列名
+		columns, err := rows.Columns()
+		if err != nil {
+			return fmt.Errorf("failed to get column names: %v", err)
+		}
+
+		// 处理结果集
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+
+		for rows.Next() {
+			// 初始化指针数组
+			for i := range columns {
+				valuePtrs[i] = &values[i]
+			}
+
+			// 扫描行数据
+			if err := rows.Scan(valuePtrs...); err != nil {
+				return fmt.Errorf("failed to scan row: %v", err)
+			}
+
+			// 创建行映射
+			row := make(map[string]interface{})
+			for i, col := range columns {
+				val := values[i]
+				// 处理不同数据类型
+				switch v := val.(type) {
+				case []byte:
+					row[col] = string(v)
+				default:
+					row[col] = v
+				}
+			}
+			result = append(result, row)
+		}
+
+		return rows.Err()
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// ExecuteWriteQueryWithURI 使用指定数据库 URI 执行写操作。
+// 该方法用于无状态多租户场景，每次调用都必须提供完整的数据库 URI。
+func ExecuteWriteQueryWithURI(ctx context.Context, connectionString, query string) (int64, error) {
+	// 检查查询类型
+	isWrite, _ := ClassifyQuery(query)
+	if !isWrite {
+		return 0, fmt.Errorf("not a write operation: expected INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc")
+	}
+
+	var rowsAffected int64
+
+	multiPoolMgr := GetMultiPoolManager()
+	err := multiPoolMgr.ExecuteWithURI(ctx, connectionString, func(db *sql.DB) error {
+		result, err := db.ExecContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("write operation failed: %v", err)
+		}
+
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get affected rows: %v", err)
+		}
+
+		rowsAffected = affected
+		return nil
+	})
+
+	return rowsAffected, err
+}
+
 // Close closes the connection pool
 func Close() {
 	poolMgr := GetPoolManager()
-	poolMgr.Close()
+	_ = poolMgr.Close()
+
+	// 同时关闭多租户场景下按 URI 创建的所有连接池
+	multiPoolMgr := GetMultiPoolManager()
+	multiPoolMgr.CloseAll()
 }
 
 // GetConnectionStats returns connection pool statistics
 func GetConnectionStats() sql.DBStats {
 	poolMgr := GetPoolManager()
 	return poolMgr.GetStats()
+}
+
+// IsDefaultPoolInitialized reports whether the global default connection pool
+// (initialized via InitDB/PoolManager) is available.
+func IsDefaultPoolInitialized() bool {
+	poolMgr := GetPoolManager()
+	return poolMgr.IsInitialized()
 }
 
 // DatabaseInfo represents information about a database

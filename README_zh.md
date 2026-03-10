@@ -239,12 +239,23 @@ KWDB MCP Server 支持以下三种传输机制：
 - **SSE（Server-Sent Events，服务器发送事件）模式（sse）**：使用 HTTP SSE 协议进行服务器到客户端的消息推送。
 - **HTTP（streamable-http）模式（http）**：推荐模式，基于 MCP 官方 streamable-http 协议，支持标准 HTTP 通信。
 
+**运行模式说明**
+
+- **单库兼容模式**：启动时传入可选的 PostgreSQL 连接串（作为第一个参数或通过 Makefile 的 `CONNECTION_STRING`）。服务会初始化默认连接池；调用 `read-query` / `write-query` 时**可以不带** `X-Database-URI` 请求头，将使用该默认池。
+- **无状态多租户模式**：启动时**不传**连接串（例如 `./bin/kwdb-mcp-server` 或 `./bin/kwdb-mcp-server -t http -p 8080`）。服务不会预先连接任何数据库。每次调用 `read-query` / `write-query` **必须**在请求中携带请求头 **`X-Database-URI`**（值为完整的 PostgreSQL 连接串），否则工具会返回错误：`missing X-Database-URI header`。
+
 #### 标准输入/输出模式
 
-- 使用 PostgreSQL 连接字符串运行 KWDB MCP Server：
+- 使用 PostgreSQL 连接字符串运行 KWDB MCP Server（单库模式）：
 
     ```shell
     ./bin/kwdb-mcp-server "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
+    ```
+
+- 或以无连接串方式启动（无状态多租户模式），此时每次工具调用需在请求中携带 `X-Database-URI` 请求头：
+
+    ```shell
+    ./bin/kwdb-mcp-server
     ```
 
 - 使用 Makefile 运行 KWDB MCP Server：
@@ -275,7 +286,8 @@ KWDB MCP Server 支持以下三种传输机制：
     CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" PORT=8080 make run-http
     ```
 
-- HTTP 服务默认监听 `0.0.0.0:<port>`，MCP 端点为 `http://<host>:<port>/mcp`
+- HTTP 服务默认监听 `0.0.0.0:<port>`，MCP 端点为 `http://<host>:<port>/mcp`。若以无连接串方式启动（无状态多租户模式），客户端在每次 `read-query` / `write-query` 调用时需携带 `X-Database-URI` 请求头。
+
 参数说明：
 
 - `-t` 或 `--transport`：传输类型，支持 `stdio`、`sse`、`http`。
@@ -302,7 +314,7 @@ KWDB MCP Server 支持以下三种传输机制：
     ./bin/kwdb-mcp-server -t sse -p 8080 "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
     ```
 
-- 使用 Makefile 运行 SSE 模式：
+- 使用 Makefile 运行 SSE 模式（也可不传 `CONNECTION_STRING` 以使用无状态模式，此时客户端需在每次工具调用时发送 `X-Database-URI`）：
 
     ```shell
     CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" PORT=8080 make run-sse

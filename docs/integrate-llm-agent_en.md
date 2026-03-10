@@ -59,6 +59,10 @@ The KWDB MCP Server can work with any LLM Agent that supports the MCP protocol. 
 
 5. Select the **Installed** tab and click the **Restart** button next to the KWDB MCP server you would like to restart, or click **Restart Server** at the bottom of that pane.
 
+> **Note (Stateless multi-tenant)**
+>
+> If you start the KWDB MCP Server without a connection string (no connection string in `args`, or empty `args`), it runs in stateless multi-tenant mode. In this mode, every `read-query` / `write-query` call must include the **`X-Database-URI`** request header (a full PostgreSQL connection string); otherwise the tool returns `missing X-Database-URI header`. When using HTTP/SSE, set the `X-Database-URI` header on each tool request.
+
 ### SSE Mode
 
 1. Enter the KWDB MCP Server installation directory and start the KWDB MCP Server.

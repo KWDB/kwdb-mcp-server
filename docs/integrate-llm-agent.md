@@ -59,6 +59,10 @@ KWDB MCP Server 可与任何支持 MCP 协议的 LLM Agent 配合使用。LLM Ag
 
 5. 选择 **Installed** 页签，单击 KWDB MCP Server 旁边的重启按钮，或者单击页面底部的 **Restart Server**。
 
+> **说明（无状态多租户）**
+>
+> 若以无连接串方式启动 KWDB MCP Server（不传 `args` 中的连接串，或 `args` 为空），则属于无状态多租户模式。在此模式下，每次调用 `read-query` / `write-query` 时，客户端需在请求中携带 **`X-Database-URI`** 请求头（值为完整的 PostgreSQL 连接串），否则工具会返回 `missing X-Database-URI header` 错误。通过 HTTP/SSE 连接时，请在每次工具请求的 HTTP 头中设置 `X-Database-URI`。
+
 ### SSE 模式
 
 1. 进入 KWDB MCP Server 安装目录，启动 KWDB MCP Server。

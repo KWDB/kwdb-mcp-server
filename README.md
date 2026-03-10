@@ -248,14 +248,25 @@ The KWDB MCP Server supports three transport modes:
 - **HTTP mode (Recommended)**: Uses HTTP for communication. This is the recommended mode for production.
 - **SSE (Server-Sent Events) mode (Deprecated)**: Uses HTTP POST and SSE for communication. This mode will be deprecated soon.
 
+**Operating modes**
+
+- **Single-DB (compatibility)**: Start the server with an optional PostgreSQL connection string as the first argument (or via `CONNECTION_STRING` in the Makefile). The server initializes a default connection pool. Tools `read-query` and `write-query` may be called **without** the `X-Database-URI` header; they use this default pool.
+- **Stateless multi-tenant**: Start the server **without** a connection string (e.g. `./bin/kwdb-mcp-server` or `./bin/kwdb-mcp-server -t http -p 8080`). The server does not open any database until a tool is invoked. Every `read-query` and `write-query` call **must** send the request header **`X-Database-URI`** with a full PostgreSQL connection string; otherwise the tool returns an error: `missing X-Database-URI header`.
+
 ---
 
 #### StdIO Mode
 
-- Run the KWDB MCP Server with a PostgreSQL connection string:
+- Run the KWDB MCP Server (with an optional connection string for single-DB mode):
 
     ```shell
     ./bin/kwdb-mcp-server "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
+    ```
+
+- Or run without a connection string for stateless mode; then each tool call must send the `X-Database-URI` header:
+
+    ```shell
+    ./bin/kwdb-mcp-server
     ```
 
 - Run the KWDB MCP Server using the Makefile:
@@ -283,7 +294,7 @@ Parameters:
     CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" PORT=8080 make run-http
     ```
 
-- The HTTP service listens on `0.0.0.0:<port>` by default, and the MCP endpoint is `http://<host>:<port>/mcp`.
+- The HTTP service listens on `0.0.0.0:<port>` by default, and the MCP endpoint is `http://<host>:<port>/mcp`. When started without a connection string (stateless mode), clients must send the `X-Database-URI` request header with each `read-query` / `write-query` call.
 
 Parameters:
 
@@ -307,7 +318,7 @@ Parameters:
 > 
 > SSE mode is deprecated and will be removed in future releases. Please use HTTP mode if possible.
 
-- Run the KWDB MCP Server in SSE mode:
+- Run the KWDB MCP Server in SSE mode (or omit `CONNECTION_STRING` for stateless mode; then clients must send `X-Database-URI` with each tool call):
 
     ```shell
     CONNECTION_STRING="postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable" PORT=8080 make run-sse

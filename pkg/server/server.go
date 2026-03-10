@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"log"
 
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
@@ -12,11 +11,16 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// CreateServer creates MCP server with delayed database connection initialization
+// CreateServer creates MCP server.
+// If connectionString is non-empty, a default database pool is initialized for
+// resources/prompts and for tools when X-Database-URI is not provided (single-DB mode).
+// If connectionString is empty, the server runs in stateless multi-tenant mode and
+// tools must use X-Database-URI to select the target database.
 func CreateServer(connectionString string) (*server.MCPServer, error) {
-	// Set connection string but don't connect immediately
-	if err := db.InitDB(connectionString); err != nil {
-		return nil, fmt.Errorf("failed to initialize database configuration: %v", err)
+	if connectionString != "" {
+		if err := db.InitDB(connectionString); err != nil {
+			return nil, err
+		}
 	}
 
 	// Create MCP server with capabilities
@@ -32,7 +36,7 @@ func CreateServer(connectionString string) (*server.MCPServer, error) {
 
 	// Register resources with lazy loading - don't fetch table info at startup
 	if err := registerLazyResources(s); err != nil {
-		return nil, fmt.Errorf("failed to register resources: %v", err)
+		return nil, err
 	}
 
 	// Register prompts - basic prompts without table schemas

@@ -187,7 +187,28 @@ func TestHTTPServer(t *testing.T) {
 		}
 	}
 
-	// 测试读查询工具 - 1秒超时
+	// 回归：不带 X-Database-URI 时，应为工具级结果（兼容模式成功 或 无状态模式返回 missing header），不应为 transport error
+	if containsToolHTTP(tools.Tools, "read-query") {
+		t.Log("Testing read-query without X-Database-URI header (compat vs stateless)...")
+		reqNoHeader := mcp.CallToolRequest{}
+		reqNoHeader.Params.Name = "read-query"
+		reqNoHeader.Params.Arguments = map[string]interface{}{"sql": "SELECT 1"}
+		resNoHeader, errNoHeader := c.CallTool(ctx, reqNoHeader)
+		if errNoHeader != nil {
+			t.Fatalf("read-query without header: expected tool-level result, got transport error: %v", errNoHeader)
+		}
+		if resNoHeader != nil && resNoHeader.IsError && len(resNoHeader.Content) > 0 {
+			if c, ok := resNoHeader.Content[0].(mcp.TextContent); ok && !strings.Contains(c.Text, "missing X-Database-URI header") {
+				t.Logf("read-query without header returned error content: %s", c.Text)
+			}
+		}
+	}
+
+	// 测试读查询工具 - 1秒超时（有 X-Database-URI 时使用，否则依赖服务端默认池）
+	dbURI := os.Getenv("KWDB_DEFAULT_URI")
+	if dbURI == "" {
+		dbURI = os.Getenv("CONNECTION_STRING")
+	}
 	if containsToolHTTP(tools.Tools, "read-query") {
 		toolName := "read-query"
 		t.Logf("Testing read query with 1 second timeout...")
@@ -197,6 +218,10 @@ func TestHTTPServer(t *testing.T) {
 		callToolRequest.Params.Name = toolName
 		callToolRequest.Params.Arguments = map[string]interface{}{
 			"sql": "SELECT 1",
+		}
+		if dbURI != "" {
+			callToolRequest.Header = make(http.Header)
+			callToolRequest.Header.Set("X-Database-URI", dbURI)
 		}
 		startTime := time.Now()
 		_, err := c.CallTool(queryCtx, callToolRequest)
@@ -221,6 +246,10 @@ func TestHTTPServer(t *testing.T) {
 		callToolRequest.Params.Arguments = map[string]interface{}{
 			"sql": fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT, name TEXT)", tempTableName),
 		}
+		if dbURI != "" {
+			callToolRequest.Header = make(http.Header)
+			callToolRequest.Header.Set("X-Database-URI", dbURI)
+		}
 		startTime := time.Now()
 		_, err := c.CallTool(queryCtx, callToolRequest)
 		queryDuration := time.Since(startTime)
@@ -234,6 +263,10 @@ func TestHTTPServer(t *testing.T) {
 			cleanupRequest.Params.Arguments = map[string]interface{}{
 				"sql": fmt.Sprintf("DROP TABLE IF EXISTS %s", tempTableName),
 			}
+			if dbURI != "" {
+				cleanupRequest.Header = make(http.Header)
+				cleanupRequest.Header.Set("X-Database-URI", dbURI)
+			}
 			_, cleanupErr := c.CallTool(ctx, cleanupRequest)
 			if cleanupErr != nil {
 				t.Logf("Warning: Failed to clean up temporary table: %v", cleanupErr)
@@ -242,7 +275,7 @@ func TestHTTPServer(t *testing.T) {
 	}
 
 	t.Log("=== 开始并发测试 ===")
-	runConcurrencyTests(t, c, ctx, tools.Tools, resources.Resources)
+	runConcurrencyTests(t, c, ctx, tools.Tools, resources.Resources, dbURI)
 
 	completeRequest := mcp.CompleteRequest{}
 	completeRequest.Params.Ref = "SELECT * FROM"
@@ -256,7 +289,7 @@ func TestHTTPServer(t *testing.T) {
 }
 
 // runConcurrencyTests 运行并发测试以验证连接池的并发访问能力
-func runConcurrencyTests(t *testing.T, c *client.Client, ctx context.Context, tools []mcp.Tool, resources []mcp.Resource) {
+func runConcurrencyTests(t *testing.T, c *client.Client, ctx context.Context, tools []mcp.Tool, resources []mcp.Resource, dbURI string) {
 	// 并发测试配置
 	const (
 		concurrentRequests = 10              // 并发请求数
@@ -266,7 +299,7 @@ func runConcurrencyTests(t *testing.T, c *client.Client, ctx context.Context, to
 	// 测试1: 并发调用读查询工具
 	if containsToolHTTP(tools, "read-query") {
 		t.Logf("测试1: 并发读查询 (%d个并发请求)", concurrentRequests)
-		testConcurrentReadQueries(t, c, concurrentRequests)
+		testConcurrentReadQueries(t, c, concurrentRequests, dbURI)
 	}
 
 	// 测试2: 并发访问资源
@@ -278,20 +311,20 @@ func runConcurrencyTests(t *testing.T, c *client.Client, ctx context.Context, to
 	// 测试3: 混合并发访问（tools + resources）
 	if containsToolHTTP(tools, "read-query") && len(resources) > 0 {
 		t.Logf("测试3: 混合并发访问 (%d个并发请求)", concurrentRequests)
-		testMixedConcurrentAccess(t, c, resources, concurrentRequests)
+		testMixedConcurrentAccess(t, c, resources, concurrentRequests, dbURI)
 	}
 
 	// 测试4: 高负载并发测试
 	if containsToolHTTP(tools, "read-query") {
 		t.Logf("测试4: 高负载并发测试 (%v持续压力)", testDuration)
-		testHighLoadConcurrency(t, c, testDuration)
+		testHighLoadConcurrency(t, c, testDuration, dbURI)
 	}
 
 	t.Log("=== 并发测试完成 ===")
 }
 
 // testConcurrentReadQueries 测试并发读查询
-func testConcurrentReadQueries(t *testing.T, c *client.Client, concurrentRequests int) {
+func testConcurrentReadQueries(t *testing.T, c *client.Client, concurrentRequests int, dbURI string) {
 	var wg sync.WaitGroup
 	results := make(chan TestResult, concurrentRequests)
 	startTime := time.Now()
@@ -308,6 +341,10 @@ func testConcurrentReadQueries(t *testing.T, c *client.Client, concurrentRequest
 			callToolRequest.Params.Name = "read-query"
 			callToolRequest.Params.Arguments = map[string]interface{}{
 				"sql": fmt.Sprintf("SELECT %d as request_id, 'concurrent_test' as test_type", id),
+			}
+			if dbURI != "" {
+				callToolRequest.Header = make(http.Header)
+				callToolRequest.Header.Set("X-Database-URI", dbURI)
 			}
 
 			reqStart := time.Now()
@@ -437,7 +474,7 @@ func testConcurrentResourceAccess(t *testing.T, c *client.Client, resources []mc
 }
 
 // testMixedConcurrentAccess 测试混合并发访问
-func testMixedConcurrentAccess(t *testing.T, c *client.Client, resources []mcp.Resource, concurrentRequests int) {
+func testMixedConcurrentAccess(t *testing.T, c *client.Client, resources []mcp.Resource, concurrentRequests int, dbURI string) {
 	var wg sync.WaitGroup
 	results := make(chan TestResult, concurrentRequests)
 	startTime := time.Now()
@@ -468,6 +505,10 @@ func testMixedConcurrentAccess(t *testing.T, c *client.Client, resources []mcp.R
 				callToolRequest.Params.Name = "read-query"
 				callToolRequest.Params.Arguments = map[string]interface{}{
 					"sql": fmt.Sprintf("SELECT %d as mixed_test_id", id),
+				}
+				if dbURI != "" {
+					callToolRequest.Header = make(http.Header)
+					callToolRequest.Header.Set("X-Database-URI", dbURI)
 				}
 				_, err = c.CallTool(reqCtx, callToolRequest)
 			} else if len(nonTemplateResources) > 0 {
@@ -515,7 +556,7 @@ func testMixedConcurrentAccess(t *testing.T, c *client.Client, resources []mcp.R
 }
 
 // testHighLoadConcurrency 测试高负载并发
-func testHighLoadConcurrency(t *testing.T, c *client.Client, duration time.Duration) {
+func testHighLoadConcurrency(t *testing.T, c *client.Client, duration time.Duration, dbURI string) {
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
@@ -542,6 +583,10 @@ func testHighLoadConcurrency(t *testing.T, c *client.Client, duration time.Durat
 					callToolRequest.Params.Name = "read-query"
 					callToolRequest.Params.Arguments = map[string]interface{}{
 						"sql": fmt.Sprintf("SELECT %d as worker_id, NOW() as timestamp", workerID),
+					}
+					if dbURI != "" {
+						callToolRequest.Header = make(http.Header)
+						callToolRequest.Header.Set("X-Database-URI", dbURI)
 					}
 
 					_, err := c.CallTool(queryCtx, callToolRequest)

@@ -11,6 +11,18 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// resolveDBTarget 决定本次请求使用哪个数据库：X-Database-URI 优先，无 header 时回退默认池，两者都无则报错。
+// 返回: useURI（非空时用 MultiPoolManager 指定库）、useDefault（为 true 时用默认池）、missingHeader（为 true 时应返回 missing header 错误）。
+func resolveDBTarget(headerURI string, defaultPoolInitialized bool) (useURI string, useDefault bool, missingHeader bool) {
+	if headerURI != "" {
+		return headerURI, false, false
+	}
+	if defaultPoolInitialized {
+		return "", true, false
+	}
+	return "", false, true
+}
+
 // RegisterTools registers all tools with the MCP server
 func RegisterTools(s *server.MCPServer) {
 	// Register read query tool
@@ -36,14 +48,29 @@ func registerReadQueryTool(s *server.MCPServer) {
 		sql := request.GetString("sql", "")
 		originalSQL := sql
 
+		// 从请求头中获取数据库 URI，用于多租户多数据库访问。
+		// 兼容模式下，如果未提供 header 且默认连接池已初始化，则回退到单库连接池。
+		headerURI := request.Header.Get("X-Database-URI")
+		useURI, _, missingHeader := resolveDBTarget(headerURI, db.IsDefaultPoolInitialized())
+		if missingHeader {
+			return mcp.NewToolResultError("missing X-Database-URI header"), nil
+		}
+
 		// Check if the query is a SELECT statement without LIMIT
 		if isSelectWithoutLimit(sql) {
 			// Add LIMIT 20 to the query
 			sql = addLimitToQuery(sql, 20)
 		}
 
-		// 使用连接池执行查询
-		result, err := db.ExecuteQueryWithContext(ctx, sql)
+		var (
+			result []map[string]interface{}
+			err    error
+		)
+		if useURI != "" {
+			result, err = db.ExecuteQueryWithURI(ctx, useURI, sql)
+		} else {
+			result, err = db.ExecuteQueryWithContext(ctx, sql)
+		}
 		if err != nil {
 			return mcp.NewToolResultErrorFromErr("Query execution failed", err), nil
 		}
@@ -101,8 +128,23 @@ func registerWriteQueryTool(s *server.MCPServer) {
 	s.AddTool(writeQueryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		sql := request.GetString("sql", "")
 
-		// 使用连接池执行写操作
-		rowsAffected, err := db.ExecuteWriteQueryWithContext(ctx, sql)
+		// 从请求头中获取数据库 URI，用于多租户多数据库访问。
+		// 兼容模式下，如果未提供 header 且默认连接池已初始化，则回退到单库连接池。
+		headerURI := request.Header.Get("X-Database-URI")
+		useURI, _, missingHeader := resolveDBTarget(headerURI, db.IsDefaultPoolInitialized())
+		if missingHeader {
+			return mcp.NewToolResultError("missing X-Database-URI header"), nil
+		}
+
+		var (
+			rowsAffected int64
+			err          error
+		)
+		if useURI != "" {
+			rowsAffected, err = db.ExecuteWriteQueryWithURI(ctx, useURI, sql)
+		} else {
+			rowsAffected, err = db.ExecuteWriteQueryWithContext(ctx, sql)
+		}
 		if err != nil {
 			return mcp.NewToolResultErrorFromErr("Write operation failed", err), nil
 		}
