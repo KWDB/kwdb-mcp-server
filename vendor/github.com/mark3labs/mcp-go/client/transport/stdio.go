@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/util"
 )
 
 // Stdio implements the transport layer of the MCP protocol using stdio communication.
@@ -26,7 +27,7 @@ type Stdio struct {
 	cmd            *exec.Cmd
 	cmdFunc        CommandFunc
 	stdin          io.WriteCloser
-	stdout         *bufio.Reader
+	stdout         *bufio.Scanner
 	stderr         io.ReadCloser
 	responses      map[string]chan *JSONRPCResponse
 	mu             sync.RWMutex
@@ -37,6 +38,7 @@ type Stdio struct {
 	requestMu      sync.RWMutex
 	ctx            context.Context
 	ctxMu          sync.RWMutex
+	logger         util.Logger
 }
 
 // StdioOption defines a function that configures a Stdio transport instance.
@@ -57,18 +59,26 @@ func WithCommandFunc(f CommandFunc) StdioOption {
 	}
 }
 
+// WithCommandLogger sets a custom logger for the stdio transport.
+func WithCommandLogger(logger util.Logger) StdioOption {
+	return func(s *Stdio) {
+		s.logger = logger
+	}
+}
+
 // NewIO returns a new stdio-based transport using existing input, output, and
 // logging streams instead of spawning a subprocess.
 // This is useful for testing and simulating client behavior.
 func NewIO(input io.Reader, output io.WriteCloser, logging io.ReadCloser) *Stdio {
 	return &Stdio{
 		stdin:  output,
-		stdout: bufio.NewReader(input),
+		stdout: bufio.NewScanner(input),
 		stderr: logging,
 
 		responses: make(map[string]chan *JSONRPCResponse),
 		done:      make(chan struct{}),
 		ctx:       context.Background(),
+		logger:    util.DefaultLogger(),
 	}
 }
 
@@ -102,6 +112,7 @@ func NewStdioWithOptions(
 		responses: make(map[string]chan *JSONRPCResponse),
 		done:      make(chan struct{}),
 		ctx:       context.Background(),
+		logger:    util.DefaultLogger(),
 	}
 
 	for _, opt := range opts {
@@ -169,7 +180,7 @@ func (c *Stdio) spawnCommand(ctx context.Context) error {
 	c.cmd = cmd
 	c.stdin = stdin
 	c.stderr = stderr
-	c.stdout = bufio.NewReader(stdout)
+	c.stdout = bufio.NewScanner(stdout)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
@@ -236,14 +247,15 @@ func (c *Stdio) readResponses() {
 		case <-c.done:
 			return
 		default:
-			line, err := c.stdout.ReadString('\n')
-			if err != nil {
-				if err != io.EOF && !errors.Is(err, context.Canceled) {
-					fmt.Printf("Error reading response: %v\n", err)
+			if !c.stdout.Scan() {
+				err := c.stdout.Err()
+				if err != nil && !errors.Is(err, context.Canceled) {
+					c.logger.Errorf("Error reading from stdout: %v", err)
 				}
 				return
 			}
 
+			line := c.stdout.Text()
 			// First try to parse as a generic message to check for ID field
 			var baseMessage struct {
 				JSONRPC string         `json:"jsonrpc"`
@@ -429,7 +441,6 @@ func (c *Stdio) handleIncomingRequest(request JSONRPCRequest) {
 		}
 
 		response, err := handler(ctx, request)
-
 		if err != nil {
 			errorResponse := JSONRPCResponse{
 				JSONRPC: mcp.JSONRPC_VERSION,
@@ -457,13 +468,13 @@ func (c *Stdio) handleIncomingRequest(request JSONRPCRequest) {
 func (c *Stdio) sendResponse(response JSONRPCResponse) {
 	responseBytes, err := json.Marshal(response)
 	if err != nil {
-		fmt.Printf("Error marshaling response: %v\n", err)
+		c.logger.Errorf("Error marshaling response: %v", err)
 		return
 	}
 	responseBytes = append(responseBytes, '\n')
 
 	if _, err := c.stdin.Write(responseBytes); err != nil {
-		fmt.Printf("Error writing response: %v\n", err)
+		c.logger.Errorf("Error writing response: %v", err)
 	}
 }
 

@@ -77,9 +77,16 @@ func (c *Client) Start(ctx context.Context) error {
 	if c.transport == nil {
 		return fmt.Errorf("transport is nil")
 	}
-	err := c.transport.Start(ctx)
-	if err != nil {
-		return err
+
+	if _, ok := c.transport.(*transport.Stdio); !ok {
+		// the stdio transport from NewStdioMCPClientWithOptions
+		// is already started, dont start again.
+		//
+		// Start the transport for other transport types
+		err := c.transport.Start(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	c.transport.SetNotificationHandler(func(notification mcp.JSONRPCNotification) {
@@ -111,6 +118,17 @@ func (c *Client) OnNotification(
 	c.notifyMu.Lock()
 	defer c.notifyMu.Unlock()
 	c.notifications = append(c.notifications, handler)
+}
+
+// OnConnectionLost registers a handler function to be called when the connection is lost.
+// This is useful for handling HTTP2 idle timeout disconnections that should not be treated as errors.
+func (c *Client) OnConnectionLost(handler func(error)) {
+	type connectionLostSetter interface {
+		SetConnectionLostHandler(func(error))
+	}
+	if setter, ok := c.transport.(connectionLostSetter); ok {
+		setter.SetConnectionLostHandler(handler)
+	}
 }
 
 // sendRequest sends a JSON-RPC request to the server and waits for a response.

@@ -6,6 +6,37 @@ import (
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
 )
 
+func TestHTTPTLSConfigValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *HTTPTLSConfig
+		wantErr bool
+	}{
+		{name: "nil config", config: nil, wantErr: false},
+		{name: "empty config", config: &HTTPTLSConfig{}, wantErr: false},
+		{name: "cert without key", config: &HTTPTLSConfig{CertFile: "a.crt"}, wantErr: true},
+		{name: "key without cert", config: &HTTPTLSConfig{KeyFile: "a.key"}, wantErr: true},
+		{name: "cert and key", config: &HTTPTLSConfig{CertFile: "a.crt", KeyFile: "a.key"}, wantErr: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestHTTPTLSConfigEnabled(t *testing.T) {
+	if (&HTTPTLSConfig{}).Enabled() {
+		t.Fatal("Enabled() = true for empty config")
+	}
+	if !(&HTTPTLSConfig{CertFile: "a.crt", KeyFile: "a.key"}).Enabled() {
+		t.Fatal("Enabled() = false for complete TLS config")
+	}
+}
+
 // TestCreateServer tests the server creation process
 func TestCreateServer(t *testing.T) {
 	// Stateless mode (no default connection string)

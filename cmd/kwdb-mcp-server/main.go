@@ -16,12 +16,16 @@ func main() {
 	// Define command line parameters
 	var transport string
 	var port string
+	var tlsCertFile string
+	var tlsKeyFile string
 	var showVersion bool
 
 	flag.StringVar(&transport, "t", "stdio", "Transport type (stdio, sse, or http)")
 	flag.StringVar(&transport, "transport", "stdio", "Transport type (stdio, sse, or http)")
 	flag.StringVar(&port, "p", "8080", "Port to listen on for HTTP/SSE mode")
 	flag.StringVar(&port, "port", "8080", "Port to listen on for HTTP/SSE mode")
+	flag.StringVar(&tlsCertFile, "tls-cert", "", "TLS certificate file for HTTP mode (requires --tls-key)")
+	flag.StringVar(&tlsKeyFile, "tls-key", "", "TLS private key file for HTTP mode (requires --tls-cert)")
 	flag.BoolVar(&showVersion, "v", false, "Show version information")
 	flag.BoolVar(&showVersion, "version", false, "Show version information")
 
@@ -58,6 +62,11 @@ func main() {
 
 	// Start server based on transport type
 	transport = strings.ToLower(transport)
+	httpTLSConfig := &server.HTTPTLSConfig{
+		CertFile: tlsCertFile,
+		KeyFile:  tlsKeyFile,
+	}
+
 	switch transport {
 	case "stdio":
 		log.Println("Starting MCP server with stdio transport...")
@@ -74,8 +83,16 @@ func main() {
 			log.Fatalf("Failed to start SSE server: %v", err)
 		}
 	case "http":
-		log.Printf("Starting MCP server with HTTP transport on %s...", addr)
-		if err := server.ServeHTTP(s, addr); err != nil {
+		// TLS flags only apply to HTTP transport; validate here so stdio/sse are unaffected.
+		if err := httpTLSConfig.Validate(); err != nil {
+			log.Fatalf("Invalid HTTP TLS configuration: %v", err)
+		}
+		protocol := "HTTP"
+		if httpTLSConfig.Enabled() {
+			protocol = "HTTPS"
+		}
+		log.Printf("Starting MCP server with %s transport on %s...", protocol, addr)
+		if err := server.ServeHTTP(s, addr, httpTLSConfig); err != nil {
 			log.Fatalf("Failed to start HTTP server: %v", err)
 		}
 	default:
