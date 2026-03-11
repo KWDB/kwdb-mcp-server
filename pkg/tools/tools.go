@@ -108,13 +108,16 @@ func registerReadQueryTool(s *server.MCPServer) {
 			"error": nil,
 		}
 
-		// Convert result to JSON
+		// Convert result to JSON for text fallback (backward compatible with clients
+		// that only read content[].text).
 		jsonResult, err := json.MarshalIndent(response, "", "  ")
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize result: %v", err)
 		}
 
-		return mcp.NewToolResultText(string(jsonResult)), nil
+		// When outputSchema is set, LangChain and other agents expect structuredContent
+		// on success; NewToolResultStructured fills both structuredContent and content.
+		return mcp.NewToolResultStructured(response, string(jsonResult)), nil
 	})
 }
 
@@ -169,13 +172,13 @@ func registerWriteQueryTool(s *server.MCPServer) {
 			"error": nil,
 		}
 
-		// Convert result to JSON
+		// Convert result to JSON for text fallback
 		jsonResult, err := json.MarshalIndent(response, "", "  ")
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize result: %v", err)
 		}
 
-		return mcp.NewToolResultText(string(jsonResult)), nil
+		return mcp.NewToolResultStructured(response, string(jsonResult)), nil
 	})
 }
 
