@@ -32,6 +32,10 @@ func RegisterTools(s *server.MCPServer) {
 	registerWriteQueryTool(s)
 }
 
+// validOutputSchema is a minimal JSON Schema so clients (e.g. Cursor) that validate
+// tool schema do not reject tools due to empty or invalid outputSchema.
+var validOutputSchema = []byte(`{"type":"object"}`)
+
 // registerReadQueryTool registers read query tool with concurrency and timeout support
 func registerReadQueryTool(s *server.MCPServer) {
 	// Create read query tool
@@ -41,6 +45,7 @@ func registerReadQueryTool(s *server.MCPServer) {
 			mcp.Required(),
 			mcp.Description("SQL query to execute. Only read operations like SELECT, SHOW, EXPLAIN are allowed."),
 		),
+		mcp.WithRawOutputSchema(json.RawMessage(validOutputSchema)),
 	)
 
 	// Add read query handler
@@ -122,6 +127,7 @@ func registerWriteQueryTool(s *server.MCPServer) {
 			mcp.Required(),
 			mcp.Description("SQL query to execute. Supports all write operations including INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc."),
 		),
+		mcp.WithRawOutputSchema(json.RawMessage(validOutputSchema)),
 	)
 
 	// Add write query handler
