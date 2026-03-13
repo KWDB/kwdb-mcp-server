@@ -1,9 +1,13 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"log"
+	"net/http"
+	"time"
 
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/ctxutil"
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/prompts"
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/resources"
@@ -112,17 +116,36 @@ func ServeHTTP(s *server.MCPServer, addr string, tlsConfig *HTTPTLSConfig) error
 		return err
 	}
 
-	var httpServer *server.StreamableHTTPServer
+	// 通过自定义 http.Server 设置超时，然后交给 mcp-go 的 StreamableHTTPServer 托管。
+	// ReadHeaderTimeout: 防止慢速客户端长时间占用连接；
+	// IdleTimeout: 关闭空闲 keep-alive 连接，避免 fd 耗尽导致一段时间后拒绝新连接。
+	baseHTTPServer := &http.Server{
+		Addr:              addr,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+
+	// WithHTTPContextFunc: 在 HTTP 模式下把 X-Database-URI 写入 context，供 resources 实现多租户。
+	httpOpts := []server.StreamableHTTPOption{
+		server.WithStreamableHTTPServer(baseHTTPServer),
+		server.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
+			return ctxutil.WithDatabaseURI(ctx, r.Header.Get("X-Database-URI"))
+		}),
+	}
 	if tlsConfig != nil && tlsConfig.Enabled() {
-		httpServer = server.NewStreamableHTTPServer(s,
-			server.WithTLSCert(tlsConfig.CertFile, tlsConfig.KeyFile),
-		)
+		httpOpts = append(httpOpts, server.WithTLSCert(tlsConfig.CertFile, tlsConfig.KeyFile))
 		log.Printf("HTTPS server listening on %s/mcp", addr)
 	} else {
-		httpServer = server.NewStreamableHTTPServer(s)
 		log.Printf("HTTP server listening on %s/mcp", addr)
 	}
-	return httpServer.Start(addr)
+
+	// mcp-go 在使用 WithStreamableHTTPServer 时不会帮我们注册路由，这里显式挂载 /mcp。
+	streamable := server.NewStreamableHTTPServer(s, httpOpts...)
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", streamable)
+	baseHTTPServer.Handler = mux
+
+	return streamable.Start(addr)
 }
 
 // Cleanup performs cleanup operations

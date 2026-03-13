@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"gitee.com/kwdb/kwdb-mcp-server/pkg/ctxutil"
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -52,8 +53,18 @@ func registerKWDBProductInfo(s *server.MCPServer) {
 	s.AddResource(kwdbInfoResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 		var productInfo interface{}
 
-		// Try to get product info from database first
-		dbProductInfo, err := db.GetProductInfo()
+		// HTTP 多租户模式下，如果有 X-Database-URI，则优先使用该库获取产品信息；
+		// 其它模式下或无 Header 时，回退到默认连接池。
+		dbURI := ctxutil.GetDatabaseURI(ctx)
+		var (
+			dbProductInfo db.ProductInfo
+			err           error
+		)
+		if dbURI != "" {
+			dbProductInfo, err = db.GetProductInfoWithURI(ctx, dbURI)
+		} else {
+			dbProductInfo, err = db.GetProductInfo()
+		}
 		if err != nil {
 			// Return error directly instead of wrapping in JSON content
 			return nil, fmt.Errorf("failed to retrieve KWDB product information: %v", err)
@@ -114,7 +125,16 @@ func registerSpecificDBInfoResource(s *server.MCPServer, dbName string) {
 	// Add database info resource handler
 	s.AddResource(dbInfoResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 		// Get database info
-		dbInfo, err := db.GetDatabaseInfoByName(dbName)
+		dbURI := ctxutil.GetDatabaseURI(ctx)
+		var (
+			dbInfo db.DatabaseInfo
+			err    error
+		)
+		if dbURI != "" {
+			dbInfo, err = db.GetDatabaseInfoByNameWithURI(ctx, dbURI, dbName)
+		} else {
+			dbInfo, err = db.GetDatabaseInfoByName(dbName)
+		}
 		if err != nil {
 			// Return error directly instead of wrapping in JSON content
 			return nil, fmt.Errorf("failed to retrieve database information for '%s': %v", dbName, err)
@@ -294,14 +314,23 @@ func registerDBInfoResourceTemplate(s *server.MCPServer) {
 		}
 
 		// 使用辅助函数提取数据库名称
-		dbName, err := extractParamFromURI(uri, templateURI, "database_name")
-		if err != nil {
+		dbName, extractErr := extractParamFromURI(uri, templateURI, "database_name")
+		if extractErr != nil {
 			// 返回错误如果 URI 格式无效
-			return nil, fmt.Errorf("invalid URI format for database info: %v", err)
+			return nil, fmt.Errorf("invalid URI format for database info: %v", extractErr)
 		}
 
 		// Get database info
-		dbInfo, err := db.GetDatabaseInfoByName(dbName)
+		dbURI := ctxutil.GetDatabaseURI(ctx)
+		var (
+			dbInfo db.DatabaseInfo
+			err    error
+		)
+		if dbURI != "" {
+			dbInfo, err = db.GetDatabaseInfoByNameWithURI(ctx, dbURI, dbName)
+		} else {
+			dbInfo, err = db.GetDatabaseInfoByName(dbName)
+		}
 		if err != nil {
 			// Return error directly instead of wrapping in JSON content
 			return nil, fmt.Errorf("failed to retrieve database information for '%s': %v", dbName, err)

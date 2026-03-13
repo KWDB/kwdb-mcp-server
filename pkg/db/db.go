@@ -377,9 +377,26 @@ type DatabaseInfo struct {
 
 // GetDatabaseInfoByName retrieves information about a specific database
 func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
+	return getDatabaseInfoByNameWithExecutor(context.Background(), "", dbName, false)
+}
+
+// GetDatabaseInfoByNameWithURI 使用指定数据库 URI 获取某个数据库的信息（多租户场景）。
+func GetDatabaseInfoByNameWithURI(ctx context.Context, connectionString, dbName string) (DatabaseInfo, error) {
+	return getDatabaseInfoByNameWithExecutor(ctx, connectionString, dbName, true)
+}
+
+// getDatabaseInfoByNameWithExecutor 共享单库/多租户实现，避免复制复杂的解析逻辑。
+func getDatabaseInfoByNameWithExecutor(ctx context.Context, connectionString, dbName string, useURI bool) (DatabaseInfo, error) {
+	exec := func(fn func(*sql.DB) error) error {
+		if useURI {
+			return GetMultiPoolManager().ExecuteWithURI(ctx, connectionString, fn)
+		}
+		return GetPoolManager().ExecuteWithConnection(ctx, fn)
+	}
+
 	// Query database version
 	var version string
-	err := GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+	err := exec(func(db *sql.DB) error {
 		err := db.QueryRow("SELECT version()").Scan(&version)
 		if err != nil {
 			return fmt.Errorf("failed to get database version: %v", err)
@@ -397,7 +414,7 @@ func GetDatabaseInfoByName(dbName string) (DatabaseInfo, error) {
 	// Use SHOW DATABASES WITH COMMENT to get engine type and comment
 	showDBQuery := `SHOW DATABASES WITH COMMENT`
 	var showDBErr error
-	err = GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+	err = exec(func(db *sql.DB) error {
 		rows, err := db.Query(showDBQuery)
 		if err != nil {
 			showDBErr = err
@@ -910,9 +927,24 @@ type ProductInfo struct {
 
 // GetProductInfo returns information about the KWDB product
 func GetProductInfo() (ProductInfo, error) {
+	return getProductInfoWithExecutor(func(fn func(*sql.DB) error) error {
+		return GetPoolManager().ExecuteWithConnection(context.Background(), fn)
+	})
+}
+
+// GetProductInfoWithURI 使用指定数据库 URI 获取产品信息（用于无状态多租户场景）。
+func GetProductInfoWithURI(ctx context.Context, connectionString string) (ProductInfo, error) {
+	multiPoolMgr := GetMultiPoolManager()
+	return getProductInfoWithExecutor(func(fn func(*sql.DB) error) error {
+		return multiPoolMgr.ExecuteWithURI(ctx, connectionString, fn)
+	})
+}
+
+// getProductInfoWithExecutor 复用 ProductInfo 的查询与解析逻辑，避免默认池与多租户实现重复代码。
+func getProductInfoWithExecutor(exec func(func(*sql.DB) error) error) (ProductInfo, error) {
 	// Query database version
 	var versionStr string
-	err := GetPoolManager().ExecuteWithConnection(context.Background(), func(db *sql.DB) error {
+	err := exec(func(db *sql.DB) error {
 		err := db.QueryRow("SELECT version()").Scan(&versionStr)
 		if err != nil {
 			return fmt.Errorf("failed to get database version: %v", err)
