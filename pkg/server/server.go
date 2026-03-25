@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/ctxutil"
@@ -14,6 +16,11 @@ import (
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/tools"
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/version"
 	"github.com/mark3labs/mcp-go/server"
+)
+
+const (
+	defaultHTTPHeartbeatInterval = 25 * time.Second
+	httpHeartbeatIntervalEnvKey  = "KWDB_HTTP_HEARTBEAT_INTERVAL"
 )
 
 // CreateServer creates MCP server.
@@ -132,6 +139,13 @@ func ServeHTTP(s *server.MCPServer, addr string, tlsConfig *HTTPTLSConfig) error
 			return ctxutil.WithDatabaseURI(ctx, r.Header.Get("X-Database-URI"))
 		}),
 	}
+	heartbeatInterval := resolveHTTPHeartbeatInterval()
+	if heartbeatInterval > 0 {
+		httpOpts = append(httpOpts, server.WithHeartbeatInterval(heartbeatInterval))
+		log.Printf("HTTP announcement heartbeat interval set to %s", heartbeatInterval)
+	} else {
+		log.Printf("HTTP announcement heartbeat disabled")
+	}
 	if tlsConfig != nil && tlsConfig.Enabled() {
 		httpOpts = append(httpOpts, server.WithTLSCert(tlsConfig.CertFile, tlsConfig.KeyFile))
 		log.Printf("HTTPS server listening on %s/mcp", addr)
@@ -146,6 +160,36 @@ func ServeHTTP(s *server.MCPServer, addr string, tlsConfig *HTTPTLSConfig) error
 	baseHTTPServer.Handler = mux
 
 	return streamable.Start(addr)
+}
+
+func resolveHTTPHeartbeatInterval() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(httpHeartbeatIntervalEnvKey))
+	if raw == "" {
+		return defaultHTTPHeartbeatInterval
+	}
+
+	interval, err := time.ParseDuration(raw)
+	if err != nil {
+		log.Printf(
+			"Invalid %s=%q, using default %s",
+			httpHeartbeatIntervalEnvKey,
+			raw,
+			defaultHTTPHeartbeatInterval,
+		)
+		return defaultHTTPHeartbeatInterval
+	}
+
+	if interval < 0 {
+		log.Printf(
+			"Invalid %s=%q, using default %s",
+			httpHeartbeatIntervalEnvKey,
+			raw,
+			defaultHTTPHeartbeatInterval,
+		)
+		return defaultHTTPHeartbeatInterval
+	}
+
+	return interval
 }
 
 // Cleanup performs cleanup operations
