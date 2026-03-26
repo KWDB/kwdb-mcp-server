@@ -36,40 +36,16 @@ func RegisterTools(s *server.MCPServer) {
 // tool schema do not reject tools due to empty or invalid outputSchema.
 var validOutputSchema = []byte(`{"type":"object"}`)
 
-func mustSingleSQLInputSchema(sqlDescription string) json.RawMessage {
-	schema, err := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"sql": map[string]any{
-				"type":        "string",
-				"description": sqlDescription,
-			},
-		},
-		"required": []string{"sql"},
-	})
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal SQL input schema: %v", err))
-	}
-	return json.RawMessage(schema)
-}
-
-func newSQLTool(name, description, sqlDescription string) mcp.Tool {
-	return mcp.Tool{
-		Name:            name,
-		Description:     description,
-		RawInputSchema:  mustSingleSQLInputSchema(sqlDescription),
-		RawOutputSchema: json.RawMessage(validOutputSchema),
-		Annotations:     mcp.ToolAnnotation{},
-	}
-}
-
 // registerReadQueryTool registers read query tool with concurrency and timeout support
 func registerReadQueryTool(s *server.MCPServer) {
 	// Create read query tool
-	readQueryTool := newSQLTool(
-		"read-query",
-		"Execute SELECT, SHOW, EXPLAIN and other read-only queries on KWDB (KaiwuDB). SELECT queries without a LIMIT clause will automatically have LIMIT 20 added to prevent large result sets.",
-		"SQL query to execute. Only read operations like SELECT, SHOW, EXPLAIN are allowed.",
+	readQueryTool := mcp.NewTool("read-query",
+		mcp.WithDescription("Execute SELECT, SHOW, EXPLAIN and other read-only queries on KWDB (KaiwuDB). SELECT queries without a LIMIT clause will automatically have LIMIT 20 added to prevent large result sets."),
+		mcp.WithString("sql",
+			mcp.Required(),
+			mcp.Description("SQL query to execute. Only read operations like SELECT, SHOW, EXPLAIN are allowed."),
+		),
+		mcp.WithRawOutputSchema(json.RawMessage(validOutputSchema)),
 	)
 
 	// Add read query handler
@@ -148,10 +124,13 @@ func registerReadQueryTool(s *server.MCPServer) {
 // registerWriteQueryTool 注册写查询工具，支持并发和超时
 func registerWriteQueryTool(s *server.MCPServer) {
 	// Create write query tool
-	writeQueryTool := newSQLTool(
-		"write-query",
-		"Execute data modification queries including DML and DDL operations on KWDB (KaiwuDB)",
-		"SQL query to execute. Supports all write operations including INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.",
+	writeQueryTool := mcp.NewTool("write-query",
+		mcp.WithDescription("Execute data modification queries including DML and DDL operations on KWDB (KaiwuDB)"),
+		mcp.WithString("sql",
+			mcp.Required(),
+			mcp.Description("SQL query to execute. Supports all write operations including INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc."),
+		),
+		mcp.WithRawOutputSchema(json.RawMessage(validOutputSchema)),
 	)
 
 	// Add write query handler
