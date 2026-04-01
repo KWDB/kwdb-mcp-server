@@ -23,14 +23,25 @@ const (
 	httpHeartbeatIntervalEnvKey  = "KWDB_HTTP_HEARTBEAT_INTERVAL"
 )
 
+// ServerConfig controls database and admin endpoint defaults used by the server.
+type ServerConfig struct {
+	ConnectionString    string
+	DefaultAdminBaseURL string
+}
+
 // CreateServer creates MCP server.
 // If connectionString is non-empty, a default database pool is initialized for
 // resources/prompts and for tools when X-Database-URI is not provided (single-DB mode).
 // If connectionString is empty, the server runs in stateless multi-tenant mode and
 // tools must use X-Database-URI to select the target database.
 func CreateServer(connectionString string) (*server.MCPServer, error) {
-	if connectionString != "" {
-		if err := db.InitDB(connectionString); err != nil {
+	return CreateServerWithConfig(ServerConfig{ConnectionString: connectionString})
+}
+
+// CreateServerWithConfig creates MCP server with optional default database and admin endpoints.
+func CreateServerWithConfig(config ServerConfig) (*server.MCPServer, error) {
+	if config.ConnectionString != "" {
+		if err := db.InitDB(config.ConnectionString); err != nil {
 			return nil, err
 		}
 	}
@@ -55,7 +66,9 @@ func CreateServer(connectionString string) (*server.MCPServer, error) {
 	prompts.RegisterPrompts(s)
 
 	// Register tools
-	tools.RegisterTools(s)
+	tools.RegisterToolsWithConfig(s, tools.Config{
+		DefaultAdminBaseURL: config.DefaultAdminBaseURL,
+	})
 
 	log.Println("KWDB (KaiwuDB) MCP Server initialized successfully (database connection will be established on demand)")
 	return s, nil

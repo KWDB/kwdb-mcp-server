@@ -11,6 +11,11 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// Config controls tool registration defaults.
+type Config struct {
+	DefaultAdminBaseURL string
+}
+
 // resolveDBTarget 决定本次请求使用哪个数据库：X-Database-URI 优先，无 header 时回退默认池，两者都无则报错。
 // 返回: useURI（非空时用 MultiPoolManager 指定库）、useDefault（为 true 时用默认池）、missingHeader（为 true 时应返回 missing header 错误）。
 func resolveDBTarget(headerURI string, defaultPoolInitialized bool) (useURI string, useDefault bool, missingHeader bool) {
@@ -25,11 +30,19 @@ func resolveDBTarget(headerURI string, defaultPoolInitialized bool) (useURI stri
 
 // RegisterTools registers all tools with the MCP server
 func RegisterTools(s *server.MCPServer) {
+	RegisterToolsWithConfig(s, Config{})
+}
+
+// RegisterToolsWithConfig registers all tools with the MCP server using default tool config.
+func RegisterToolsWithConfig(s *server.MCPServer, config Config) {
 	// Register read query tool
 	registerReadQueryTool(s)
 
 	// Register write query tool
 	registerWriteQueryTool(s)
+
+	// Register metrics history tool
+	registerQueryMetricsHistoryTool(s, config)
 }
 
 // validOutputSchema is a minimal JSON Schema so clients (e.g. Cursor) that validate

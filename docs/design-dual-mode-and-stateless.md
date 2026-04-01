@@ -1,6 +1,6 @@
 # 双模式与无状态多租户设计说明
 
-本文档描述 KWDB MCP Server 的**双模式**行为及**无状态多租户**设计，便于 Code Review 与后续维护时对齐实现与文档。
+本文档描述 KWDB MCP Server 的**双模式**行为、**无状态多租户**设计，以及 admin HTTP 端点默认值的传递方式，便于 Code Review 与后续维护时对齐实现与文档。
 
 ---
 
@@ -10,12 +10,16 @@
 
 - **无状态多租户**：去掉启动时必传的数据库 URI，通过每次工具调用时的 **`X-Database-URI`** 请求头选择数据库，实现一个 server 进程服务多用户、多库。
 - **兼容老产品**：保留“启动参数带 connection string”的用法，现有单库部署方式无需改动即可继续使用。
+- **历史指标查询**：通过 `query-metrics-history` 封装数据库 admin `/ts/query` API，并支持默认 admin 地址与每次请求覆盖。
 
 ### 1.2 约束与不采纳方案
 
 - **不使用** `KWDB_DEFAULT_URI` 等环境变量作为默认连接串；数据库选择仅依赖：
   - 启动参数中的可选连接串（用于默认池），以及
   - 请求头 `X-Database-URI`（用于按请求指定库）。
+- **不从数据库 URI 自动推导 admin 地址**；历史指标查询的 admin HTTP 目标仅依赖：
+  - 启动参数 `--admin-base-url`（用于默认 admin 地址），以及
+  - 请求头 `X-Admin-Base-URL`（用于按请求覆盖）。
 
 ---
 
@@ -28,6 +32,7 @@
 
 - **资源与提示**：当前表结构资源（如 `kwdb://table/{table_name}`）与 Prompts 仍使用**默认连接池**；仅在无连接串启动时无默认池，访问这些能力会依赖默认池的调用会失败（与“无状态下必须用 header 指定库”的设计一致，未来若需可按需扩展）。
 - **StdIO / HTTP / SSE**：三种传输方式均支持上述双模式；HTTP/SSE 下由客户端在每次工具请求的 HTTP 头中携带 `X-Database-URI`。
+- **历史指标工具**：`query-metrics-history` 独立于 SQL 连接选择；若未配置 `--admin-base-url`，则每次工具调用必须携带 `X-Admin-Base-URL`。
 
 ---
 
@@ -38,8 +43,8 @@
 ```mermaid
 flowchart TB
     subgraph Client["客户端"]
-        Req["工具请求\n(read-query / write-query)"]
-        Req -->|"可选: X-Database-URI"| Transport
+        Req["工具请求\n(read-query / write-query /\nquery-metrics-history)"]
+        Req -->|"可选: X-Database-URI\n可选: X-Admin-Base-URL"| Transport
     end
 
     subgraph Transport["传输层"]
@@ -47,10 +52,10 @@ flowchart TB
     end
 
     subgraph Server["KWDB MCP Server"]
-        Main["main.go\n可选 connectionString"]
-        Main --> CreateServer["CreateServer(connectionString)"]
+        Main["main.go\n可选 connectionString\n可选 adminBaseURL"]
+        Main --> CreateServer["CreateServerWithConfig(...)"]
         CreateServer -->|"connectionString != \"\""| InitDB["db.InitDB()\n默认连接池"]
-        CreateServer --> Tools["tools\nread-query / write-query"]
+        CreateServer --> Tools["tools\nread-query / write-query /\nquery-metrics-history"]
         CreateServer --> Res["resources / prompts\n(使用默认池)"]
 
         Tools --> Resolve["resolveDBTarget\n(headerURI, defaultPoolInit)"]
@@ -87,7 +92,19 @@ flowchart LR
     UseDefault --> Exec
 ```
 
-### 3.3 双模式与连接池关系
+### 3.3 Admin 地址选择流程
+
+```mermaid
+flowchart LR
+    Start(["query-metrics-history 请求"]) --> GetHeader["读取 X-Admin-Base-URL"]
+    GetHeader --> CheckHeader{"header 非空?"}
+    CheckHeader -->|是| UseHeader["使用 header 中的 admin 地址"]
+    CheckHeader -->|否| CheckDefault{"配置了默认 adminBaseURL?"}
+    CheckDefault -->|是| UseDefault["使用启动参数中的默认 admin 地址"]
+    CheckDefault -->|否| Missing["返回错误\nmissing X-Admin-Base-URL header"]
+```
+
+### 3.4 双模式与连接池关系
 
 ```mermaid
 flowchart TB
@@ -129,12 +146,13 @@ flowchart TB
 ### 5.1 入口与 Server 创建
 
 - **`cmd/kwdb-mcp-server/main.go`**  
-  - 将第一个非 flag 参数作为可选 `connectionString` 传入 `CreateServer`（约 44–51 行）。  
+  - 将第一个非 flag 参数作为可选 `connectionString`；`--admin-base-url` 作为可选默认 admin 地址，一并传入 `CreateServerWithConfig(...)`。  
   - 不传参数时 `connectionString` 为空，即无状态多租户模式。
 - **`pkg/server/server.go`**  
-  - **`CreateServer(connectionString string)`**（约 14–19 行）：  
-    - `connectionString != ""` 时调用 `db.InitDB(connectionString)` 初始化默认池；  
-    - `connectionString == ""` 时不初始化默认池，工具必须依赖 `X-Database-URI`。
+  - **`CreateServerWithConfig(config ServerConfig)`**：  
+    - `config.ConnectionString != ""` 时调用 `db.InitDB(config.ConnectionString)` 初始化默认池；  
+    - `config.ConnectionString == ""` 时不初始化默认池，SQL 工具必须依赖 `X-Database-URI`；  
+    - 将 `config.DefaultAdminBaseURL` 传递给工具层，供 `query-metrics-history` 作为默认 admin 地址。
 
 ### 5.2 数据库层
 
@@ -157,13 +175,16 @@ flowchart TB
   - **`resolveDBTarget(headerURI, defaultPoolInitialized)`**（约 14–24 行）：实现上述三步决策。  
   - **read-query**（约 47–57 行）：从 `request.Header.Get("X-Database-URI")` 取 header，调用 `resolveDBTarget`；若 `missingHeader` 则返回 `mcp.NewToolResultError("missing X-Database-URI header")`；否则按 `useURI` / 默认池分别调用 `ExecuteQueryWithURI` 或 `ExecuteQueryWithContext`。  
   - **write-query**：逻辑与 read-query 对称，使用 `ExecuteWriteQueryWithURI` 或 `ExecuteWriteWithContext`。
+- **`pkg/tools/metrics_history.go`**  
+  - **`resolveAdminBaseURL(headerValue, defaultValue)`**：`X-Admin-Base-URL` 优先；否则使用启动参数中的默认 admin 地址；都不存在则返回 `missing X-Admin-Base-URL header`。  
+  - **`query-metrics-history`**：将毫秒时间戳和字符串聚合参数转换成 `/ts/query` 的请求体，调用 admin HTTP 端点后再把返回值标准化为毫秒时间戳与结构化结果。
 
 ---
 
 ## 6. 测试与文档
 
 - **单元测试**：`pkg/tools/tools_test.go` 中对 `resolveDBTarget` 的三种分支（有 header、无 header 有默认池、无 header 无默认池）进行了覆盖。
-- **集成测试**：在 HTTP / StdIO / SSE 测试中，增加“不带 `X-Database-URI`”的用例，**仅断言**无 header 时得到的是工具级结果（即**不是** transport error）；若工具返回错误，会 `Logf` 错误内容便于排查，但**不**断言错误文案必须包含 `missing X-Database-URI header`。在需要连接串的用例中，对 read-query / write-query 及清理步骤统一设置 `X-Database-URI`。
+- **集成测试**：在 HTTP / StdIO / SSE 测试中，增加“不带 `X-Database-URI`”的用例，**仅断言**无 header 时得到的是工具级结果（即**不是** transport error）；若工具返回错误，会 `Logf` 错误内容便于排查，但**不**断言错误文案必须包含 `missing X-Database-URI header`。在需要连接串的用例中，对 read-query / write-query 及清理步骤统一设置 `X-Database-URI`。对 `query-metrics-history`，同理使用 `X-Admin-Base-URL` 或启动参数默认值。
 - **文档**：  
   - README / README_zh：在“启动 KWDB MCP Server”处补充双模式说明及无连接串启动时的 `X-Database-URI` 约束；各传输方式示例中注明无状态模式下的 header 要求。  
   - 集成文档（integrate-llm-agent*.md）：说明无连接串启动时，调用 read-query / write-query 需携带 `X-Database-URI`。  
@@ -173,6 +194,6 @@ flowchart TB
 
 ## 7. 小结
 
-- **实现**：通过可选启动连接串 + 请求头 `X-Database-URI` 实现双模式；数据库选择逻辑集中在 `resolveDBTarget`，工具与 DB 层分工清晰。  
+- **实现**：通过可选启动连接串 + 请求头 `X-Database-URI` 实现 SQL 双模式；通过 `--admin-base-url` + `X-Admin-Base-URL` 实现历史指标查询的 admin 地址选择。数据库目标与 admin 目标各自独立，边界清晰。  
 - **兼容性**：旧命令（带连接串启动）在单库兼容模式下仍有效，无破坏性变更。  
 - **文档**：双模式、`X-Database-URI` 约束及无状态下的排障路径已写入 README、集成文档与排障文档，与实现一致。

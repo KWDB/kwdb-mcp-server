@@ -11,6 +11,8 @@ id: troubleshooting
 
 - 检查数据库连接字符串是否正确。
 - **无状态多租户模式**：若工具报错 `missing X-Database-URI header` 或与连接相关的错误，且启动时未传连接串，请确认每次调用 `read-query` / `write-query` 时是否在请求中携带了 **`X-Database-URI`** 请求头，且其值为有效的 PostgreSQL 连接串。
+- **历史指标查询**：若 `query-metrics-history` 报错 `missing X-Admin-Base-URL header`，请确认是否已在启动时通过 `--admin-base-url` 配置默认值，或在每次工具调用时携带 **`X-Admin-Base-URL`** 请求头。
+- **admin 端点失败**：若 `query-metrics-history` 返回 `Metrics query failed`，请检查 `X-Admin-Base-URL` 或 `--admin-base-url` 是否指向目标 KWDB 实例的 admin HTTP 地址，并确认 `/ts/query` 可访问。
 - 检查用户主机是否可以正常访问 KWDB 数据库。
 - 检查数据库用户是否具有足够的权限。
 - 检查 LLM Agent 中 KWDB MCP Server 配置中数据库的连接地址否正确。
@@ -24,4 +26,3 @@ id: troubleshooting
 | CORS 错误  | 如果通过 Web 浏览器访问 KWDB 数据库，确保 KWDB MCP Server 的基础 URL 与数据库的 URL 匹配。 |
 | 网络问题   | 检查防火墙规则或网络配置，确认是否阻止连接。                                               |
 | 数据库连接 | 确保 KWDB MCP Server 可以正常访问数据库。                                                 |
-

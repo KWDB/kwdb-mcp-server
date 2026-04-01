@@ -11,6 +11,8 @@ If you fail to connect to the KWDB database, troubleshoot the issue in the follo
 
 - Check whether the database connection string is correct.
 - Stateless multi-tenant mode: If the tool returns `missing X-Database-URI header` or connection-related errors and the server was started without a connection string, ensure that every `read-query` / `write-query` call sends the **`X-Database-URI`** request header with a valid PostgreSQL connection string.
+- Historical metrics queries: If `query-metrics-history` returns `missing X-Admin-Base-URL header`, ensure that the server was started with `--admin-base-url` or that each tool call sends the **`X-Admin-Base-URL`** request header.
+- Admin endpoint failures: If `query-metrics-history` returns `Metrics query failed`, verify that `X-Admin-Base-URL` or `--admin-base-url` points to the target KWDB admin HTTP endpoint and that `/ts/query` is reachable.
 - Check whether the user can access to the KWDB database.
 - Check whether the user has appropriate privileges.
 - Check whether the KWDB database address in the KWDB MCP Server configuration of the LLM Agent is correct.
@@ -24,5 +26,4 @@ If you fail to connect to the KWDB database, troubleshoot the issue in the follo
 | CORS errors           | If you access the KWDB database from a Web browser, ensure that the KWDB MCP Server's base URL matches the KWDB database URL.|
 | Network issues        | Check if firewalls or network configurations are blocking the connection.                                                    |
 | Database connectivity | Ensure that the KWDB MCP Server can access the KWDB database.                                                                |
-
 

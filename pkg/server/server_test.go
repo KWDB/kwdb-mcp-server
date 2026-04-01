@@ -61,6 +61,35 @@ func TestCreateServer(t *testing.T) {
 	Cleanup()
 }
 
+func TestCreateServerWithConfig(t *testing.T) {
+	t.Run("stateless with admin base url", func(t *testing.T) {
+		s, err := CreateServerWithConfig(ServerConfig{
+			DefaultAdminBaseURL: "http://admin.example:8080",
+		})
+		if err != nil {
+			t.Fatalf("CreateServerWithConfig failed in stateless mode: %v", err)
+		}
+		if s == nil {
+			t.Fatal("CreateServerWithConfig returned nil server in stateless mode")
+		}
+		Cleanup()
+	})
+
+	t.Run("single-db with admin base url", func(t *testing.T) {
+		s, err := CreateServerWithConfig(ServerConfig{
+			ConnectionString:    "postgresql://invalid:invalid@localhost:26257/nonexistent",
+			DefaultAdminBaseURL: "http://admin.example:8080",
+		})
+		if err != nil {
+			t.Fatalf("CreateServerWithConfig failed with connection string: %v", err)
+		}
+		if s == nil {
+			t.Fatal("CreateServerWithConfig returned nil server with connection string")
+		}
+		Cleanup()
+	})
+}
+
 // TestCleanup tests the cleanup process
 func TestCleanup(t *testing.T) {
 	// Setup
