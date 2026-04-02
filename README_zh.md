@@ -114,6 +114,28 @@ ALTER TABLE products ADD COLUMN description TEXT;
 DROP TABLE products;
 ```
 
+#### 历史指标查询（query-metrics-history）
+
+KWDB MCP Server 支持通过数据库 admin 端点的 `/ts/query` API 查询运行时指标历史数据。该工具使用毫秒时间戳作为输入，并将聚合方式、导数类型等字符串参数转换为后端接口所需的枚举值。
+
+示例：
+
+```json
+{
+  "start_ms": 1775035140000,
+  "end_ms": 1775035740000,
+  "sample_ms": 60000,
+  "queries": [
+    {
+      "name": "cr.node.sql.query.count",
+      "downsampler": "avg",
+      "source_aggregator": "sum",
+      "derivative": "rate"
+    }
+  ]
+}
+```
+
 ### MCP Prompts
 
 MCP Prompts 指 KWDB MCP Server 定义的可复用提示模板，引导 LLM 交互。下表列出 KWDB MCP Server 支持的 Prompts。
@@ -243,6 +265,7 @@ KWDB MCP Server 支持以下三种传输机制：
 
 - **单库兼容模式**：启动时传入可选的 PostgreSQL 连接串（作为第一个参数或通过 Makefile 的 `CONNECTION_STRING`）。服务会初始化默认连接池；调用 `read-query` / `write-query` 时**可以不带** `X-Database-URI` 请求头，将使用该默认池。
 - **无状态多租户模式**：启动时**不传**连接串（例如 `./bin/kwdb-mcp-server` 或 `./bin/kwdb-mcp-server -t http -p 8080`）。服务不会预先连接任何数据库。每次调用 `read-query` / `write-query` **必须**在请求中携带请求头 **`X-Database-URI`**（值为完整的 PostgreSQL 连接串），否则工具会返回错误：`missing X-Database-URI header`。
+- **Admin 端点默认值**：历史指标查询依赖目标数据库的 admin HTTP 地址。可通过 `--admin-base-url` 配置默认值，也可在每次工具调用时通过 `X-Admin-Base-URL` 指定；若两者都没有提供，`query-metrics-history` 会返回 `missing X-Admin-Base-URL header`。
 
 #### 标准输入/输出模式
 
@@ -252,7 +275,7 @@ KWDB MCP Server 支持以下三种传输机制：
     ./bin/kwdb-mcp-server "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
     ```
 
-- 或以无连接串方式启动（无状态多租户模式），此时每次工具调用需在请求中携带 `X-Database-URI` 请求头：
+- 或以无连接串方式启动（无状态多租户模式），此时每次 `read-query` / `write-query` 调用需在请求中携带 `X-Database-URI` 请求头；若调用 `query-metrics-history`，还需提供 `X-Admin-Base-URL`，除非启动时已设置 `--admin-base-url`。
 
     ```shell
     ./bin/kwdb-mcp-server
@@ -287,6 +310,7 @@ KWDB MCP Server 支持以下三种传输机制：
     ```
 
 - HTTP 服务默认监听 `0.0.0.0:<port>`，MCP 端点为 `http://<host>:<port>/mcp`。若以无连接串方式启动（无状态多租户模式），客户端在每次 `read-query` / `write-query` 调用时需携带 `X-Database-URI` 请求头。
+- 对 `query-metrics-history`，若未在启动时设置 `--admin-base-url`，客户端需在每次工具调用时携带 `X-Admin-Base-URL` 请求头。
 
 - **HTTPS（TLS）** 为可选：同时传入 `--tls-cert` 与 `--tls-key`（PEM 证书与私钥路径）即启用 TLS，端点为 `https://<host>:<port>/mcp`。只传其中一个会直接报错退出。TLS 由 [mcp-go](https://github.com/mark3labs/mcp-go) 的 `WithTLSCert` 提供（需 mcp-go v0.39+）。
 
@@ -301,6 +325,7 @@ KWDB MCP Server 支持以下三种传输机制：
   - `sse`：SSE 模式（即将弃用）
   - `http`：HTTP 模式（推荐）
 - `-p` 或 `--port`：KWDB MCP Server 的监听端口，默认为 `8080`。
+- `--admin-base-url`：可选。目标 KWDB 实例的默认 admin HTTP 基础地址，供 `query-metrics-history` 使用。
 - `--tls-cert` / `--tls-key`：可选。HTTP 模式下的 PEM 证书与私钥，须同时指定；仅在与 `-t http` 一起使用时生效。
 - `username`：连接 KWDB 数据库的用户名。
 - `password`：身份验证时使用的密码。

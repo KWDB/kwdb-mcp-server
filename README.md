@@ -123,6 +123,28 @@ ALTER TABLE products ADD COLUMN description TEXT;
 DROP TABLE products;
 ```
 
+#### query-metrics-history
+
+The KWDB MCP Server can query historical runtime metrics through the database admin `/ts/query` API. This tool accepts millisecond timestamps, converts string aggregations to the backend enum values, and normalizes timestamps in the response.
+
+Examples:
+
+```json
+{
+  "start_ms": 1775035140000,
+  "end_ms": 1775035740000,
+  "sample_ms": 60000,
+  "queries": [
+    {
+      "name": "cr.node.sql.query.count",
+      "downsampler": "avg",
+      "source_aggregator": "sum",
+      "derivative": "rate"
+    }
+  ]
+}
+```
+
 ### MCP Prompts
 
 MCP Prompts enable the KWDB MCP Server to define reusable prompt templates and workflows that MCP clients can easily surface to users and LLMs. They provide a powerful way to standardize and share common LLM interactions. The KWDB MCP Server provides the following MCP Prompts:
@@ -252,6 +274,7 @@ The KWDB MCP Server supports three transport modes:
 
 - **Single-DB (compatibility)**: Start the server with an optional PostgreSQL connection string as the first argument (or via `CONNECTION_STRING` in the Makefile). The server initializes a default connection pool. Tools `read-query` and `write-query` may be called **without** the `X-Database-URI` header; they use this default pool.
 - **Stateless multi-tenant**: Start the server **without** a connection string (e.g. `./bin/kwdb-mcp-server` or `./bin/kwdb-mcp-server -t http -p 8080`). The server does not open any database until a tool is invoked. Every `read-query` and `write-query` call **must** send the request header **`X-Database-URI`** with a full PostgreSQL connection string; otherwise the tool returns an error: `missing X-Database-URI header`.
+- **Admin endpoint default**: Historical metrics queries use the database admin HTTP endpoint. You can set a default via `--admin-base-url`, or send `X-Admin-Base-URL` per tool call. If neither is provided, `query-metrics-history` returns `missing X-Admin-Base-URL header`.
 
 ---
 
@@ -263,7 +286,7 @@ The KWDB MCP Server supports three transport modes:
     ./bin/kwdb-mcp-server "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
     ```
 
-- Or run without a connection string for stateless mode; then each tool call must send the `X-Database-URI` header:
+- Or run without a connection string for stateless mode; then each `read-query` / `write-query` call must send the `X-Database-URI` header. Historical metrics calls must also provide `X-Admin-Base-URL` unless you started the server with `--admin-base-url`.
 
     ```shell
     ./bin/kwdb-mcp-server
@@ -295,6 +318,7 @@ Parameters:
     ```
 
 - The HTTP service listens on `0.0.0.0:<port>` by default, and the MCP endpoint is `http://<host>:<port>/mcp`. When started without a connection string (stateless mode), clients must send the `X-Database-URI` request header with each `read-query` / `write-query` call.
+- For `query-metrics-history`, clients must send `X-Admin-Base-URL` on each tool call unless the server was started with `--admin-base-url`.
 
 - **HTTPS (TLS)** is optional: pass both `--tls-cert` and `--tls-key` with PEM file paths. The server then listens with TLS; the MCP endpoint is `https://<host>:<port>/mcp`. If only one of the two flags is set, the process exits with an error. TLS is implemented via [mcp-go](https://github.com/mark3labs/mcp-go) `WithTLSCert` (requires mcp-go v0.39+).
 
@@ -309,6 +333,7 @@ Parameters:
   - `sse`: SSE mode (deprecated)
   - `http`: HTTP mode (recommended)
 - `-p` or `--port`: Listening port for KWDB MCP Server, default is `8080`.
+- `--admin-base-url`: Optional. Default admin HTTP base URL of the target KWDB instance, used by `query-metrics-history`.
 - `--tls-cert` / `--tls-key`: Optional. PEM certificate and private key for HTTP mode HTTPS. Both must be set together; only applies when `-t http`.
 - `username`: Username for connecting to the KWDB database.
 - `password`: Password for authentication.

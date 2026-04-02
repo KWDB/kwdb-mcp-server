@@ -62,6 +62,8 @@ KWDB MCP Server 可与任何支持 MCP 协议的 LLM Agent 配合使用。LLM Ag
 > **说明（无状态多租户）**
 >
 > 若以无连接串方式启动 KWDB MCP Server（不传 `args` 中的连接串，或 `args` 为空），则属于无状态多租户模式。在此模式下，每次调用 `read-query` / `write-query` 时，客户端需在请求中携带 **`X-Database-URI`** 请求头（值为完整的 PostgreSQL 连接串），否则工具会返回 `missing X-Database-URI header` 错误。通过 HTTP/SSE 连接时，请在每次工具请求的 HTTP 头中设置 `X-Database-URI`。
+>
+> 若调用 `query-metrics-history`，客户端还需提供 **`X-Admin-Base-URL`** 请求头（值为目标 KWDB 实例的 admin HTTP 基础地址，如 `http://host:8080`），除非服务启动时已通过 `--admin-base-url` 配置默认值。
 
 ### SSE 模式
 
@@ -81,6 +83,7 @@ KWDB MCP Server 可与任何支持 MCP 协议的 LLM Agent 配合使用。LLM Ag
   - `sse`：SSE 模式（即将弃用）
   - `http`：HTTP 模式（推荐）
 - `-p` 或 `--port`：KWDB MCP Server 的监听端口，默认为 `8080`。
+- `--admin-base-url`：可选。目标 KWDB 实例的默认 admin HTTP 基础地址，供 `query-metrics-history` 使用。
 - `username`：连接 KWDB 数据库的用户名。
 - `password`：身份验证时使用的密码。
 - `hostname`：KWDB 数据库的 IP 地址。

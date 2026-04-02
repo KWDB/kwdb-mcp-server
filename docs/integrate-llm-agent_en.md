@@ -62,6 +62,8 @@ The KWDB MCP Server can work with any LLM Agent that supports the MCP protocol. 
 > **Note (Stateless multi-tenant)**
 >
 > If you start the KWDB MCP Server without a connection string (no connection string in `args`, or empty `args`), it runs in stateless multi-tenant mode. In this mode, every `read-query` / `write-query` call must include the **`X-Database-URI`** request header (a full PostgreSQL connection string); otherwise the tool returns `missing X-Database-URI header`. When using HTTP/SSE, set the `X-Database-URI` header on each tool request.
+>
+> If you call `query-metrics-history`, also provide the **`X-Admin-Base-URL`** request header (the target KWDB admin HTTP base URL such as `http://host:8080`) unless the server was started with `--admin-base-url`.
 
 ### SSE Mode
 
@@ -82,6 +84,7 @@ Parameters:
   - `sse`: SSE mode (deprecated)
   - `http`: HTTP mode (recommended)
 - `-p` or `--port`: Listening port for KWDB MCP Server, default is `8080`.
+- `--admin-base-url`: Optional. Default admin HTTP base URL of the target KWDB instance, used by `query-metrics-history`.
 - `username`: Username for connecting to the KWDB database.
 - `password`: Password for authentication.
 - `hostname`: IP address of the KWDB database.
