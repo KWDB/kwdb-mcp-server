@@ -1,6 +1,7 @@
 # 双模式与无状态多租户设计说明
 
-本文档描述 KWDB MCP Server 的**双模式**行为、**无状态多租户**设计，以及 admin HTTP 端点默认值的传递方式，便于 Code Review 与后续维护时对齐实现与文档。
+本文档描述 KWDB MCP Server 的**双模式**行为、**无状态多租户**设计，以及 admin HTTP 端点默认值的传递方式，便于 Code Review 与后续维护时对齐实现与文档。  
+关于 `query-metrics-history` 的具体实现细节，另见 [`docs/design-metrics-history-tool.md`](./design-metrics-history-tool.md)。
 
 ---
 
@@ -177,18 +178,22 @@ flowchart TB
   - **write-query**：逻辑与 read-query 对称，使用 `ExecuteWriteQueryWithURI` 或 `ExecuteWriteWithContext`。
 - **`pkg/tools/metrics_history.go`**  
   - **`resolveAdminBaseURL(headerValue, defaultValue)`**：`X-Admin-Base-URL` 优先；否则使用启动参数中的默认 admin 地址；都不存在则返回 `missing X-Admin-Base-URL header`。  
-  - **`query-metrics-history`**：将毫秒时间戳和字符串聚合参数转换成 `/ts/query` 的请求体，调用 admin HTTP 端点后再把返回值标准化为毫秒时间戳与结构化结果。
+  - **`query-metrics-history`**：将毫秒时间戳和字符串聚合参数转换成 `/ts/query` 的请求体，调用 admin HTTP 端点后再把返回值标准化为毫秒时间戳与结构化结果。具体输入/输出与限制见 [`docs/design-metrics-history-tool.md`](./design-metrics-history-tool.md)。
 
 ---
 
 ## 6. 测试与文档
 
-- **单元测试**：`pkg/tools/tools_test.go` 中对 `resolveDBTarget` 的三种分支（有 header、无 header 有默认池、无 header 无默认池）进行了覆盖。
-- **集成测试**：在 HTTP / StdIO / SSE 测试中，增加“不带 `X-Database-URI`”的用例，**仅断言**无 header 时得到的是工具级结果（即**不是** transport error）；若工具返回错误，会 `Logf` 错误内容便于排查，但**不**断言错误文案必须包含 `missing X-Database-URI header`。在需要连接串的用例中，对 read-query / write-query 及清理步骤统一设置 `X-Database-URI`。对 `query-metrics-history`，同理使用 `X-Admin-Base-URL` 或启动参数默认值。
+- **单元测试**：  
+  - `pkg/tools/tools_test.go` 覆盖 `resolveDBTarget` 的三种分支（有 header、无 header 有默认池、无 header 无默认池）。  
+  - `pkg/server/server_test.go` 覆盖 `CreateServerWithConfig(...)`。  
+  - `pkg/tools/metrics_history_test.go` 覆盖 `resolveAdminBaseURL(...)`、参数校验、请求构造、响应解析、tool 注册与默认 admin 地址行为。
+- **集成测试**：当前 HTTP / StdIO / SSE 集成测试已覆盖 SQL 工具的 `X-Database-URI` 路径。`query-metrics-history` 的跨传输集成测试当前**尚未补充**。
 - **文档**：  
   - README / README_zh：在“启动 KWDB MCP Server”处补充双模式说明及无连接串启动时的 `X-Database-URI` 约束；各传输方式示例中注明无状态模式下的 header 要求。  
-  - 集成文档（integrate-llm-agent*.md）：说明无连接串启动时，调用 read-query / write-query 需携带 `X-Database-URI`。  
-  - 排障文档（troubleshooting*.md）：在“数据库连接失败”中增加无状态模式下 header 缺失/错误的排查步骤。
+  - 集成文档（integrate-llm-agent*.md）：说明无连接串启动时，调用 read-query / write-query 需携带 `X-Database-URI`；调用 `query-metrics-history` 时需提供 `X-Admin-Base-URL` 或启动参数默认值。  
+  - 排障文档（troubleshooting*.md）：在“数据库连接失败”中增加 `X-Database-URI` 与 `X-Admin-Base-URL` 相关排查步骤。  
+  - 历史指标工具设计说明：见 [`docs/design-metrics-history-tool.md`](./design-metrics-history-tool.md)。
 
 ---
 
