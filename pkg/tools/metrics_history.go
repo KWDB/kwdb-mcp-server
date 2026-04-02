@@ -121,12 +121,12 @@ type tsQueryResponseDataPoint struct {
 }
 
 func registerQueryMetricsHistoryTool(s *server.MCPServer, config Config) {
-	metricsHistoryTool := mcp.NewTool(
+	metricsHistoryTool := mcp.NewToolWithRawSchema(
 		"query-metrics-history",
-		mcp.WithDescription("Query KWDB historical runtime metrics through the admin /ts/query API using millisecond timestamps and normalized aggregations."),
-		mcp.WithRawInputSchema(json.RawMessage(metricsHistoryInputSchema)),
-		mcp.WithRawOutputSchema(json.RawMessage(validOutputSchema)),
+		"Query KWDB historical runtime metrics through the admin /ts/query API using millisecond timestamps and normalized aggregations.",
+		json.RawMessage(metricsHistoryInputSchema),
 	)
+	metricsHistoryTool.RawOutputSchema = json.RawMessage(validOutputSchema)
 
 	s.AddTool(metricsHistoryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var input metricsHistoryInput

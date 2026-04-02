@@ -211,6 +211,16 @@ func TestRegisterToolsWithConfig_RegistersMetricsHistoryTool(t *testing.T) {
 	}
 }
 
+func TestQueryMetricsHistoryTool_MarshalJSON(t *testing.T) {
+	s := mcpserver.NewMCPServer("test", "1.0", mcpserver.WithToolCapabilities(true))
+	RegisterToolsWithConfig(s, Config{})
+	tool := s.ListTools()["query-metrics-history"].Tool
+
+	if _, err := json.Marshal(tool); err != nil {
+		t.Fatalf("tool should marshal cleanly, got error: %v", err)
+	}
+}
+
 func TestQueryMetricsHistoryTool_MissingAdminBaseURL(t *testing.T) {
 	s := mcpserver.NewMCPServer("test", "1.0", mcpserver.WithToolCapabilities(true))
 	RegisterToolsWithConfig(s, Config{})
