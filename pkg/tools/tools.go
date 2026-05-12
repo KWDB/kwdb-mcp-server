@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"gitee.com/kwdb/kwdb-mcp-server/pkg/db"
@@ -48,6 +49,11 @@ func RegisterToolsWithConfig(s *server.MCPServer, config Config) {
 // validOutputSchema is a minimal JSON Schema so clients (e.g. Cursor) that validate
 // tool schema do not reject tools due to empty or invalid outputSchema.
 var validOutputSchema = []byte(`{"type":"object"}`)
+
+var (
+	limitClausePattern = regexp.MustCompile(`(?is)\blimit\b`)
+	fetchClausePattern = regexp.MustCompile(`(?is)\bfetch\s+(first|next)\b`)
+)
 
 // registerReadQueryTool registers read query tool with concurrency and timeout support
 func registerReadQueryTool(s *server.MCPServer) {
@@ -199,20 +205,31 @@ func registerWriteQueryTool(s *server.MCPServer) {
 func isSelectWithoutLimit(sql string) bool {
 	// Convert to uppercase for case-insensitive comparison
 	sqlUpper := strings.ToUpper(sql)
+	sqlUpperTrimmed := strings.TrimSpace(sqlUpper)
 
 	// Check if it's a SELECT statement
-	if !strings.HasPrefix(strings.TrimSpace(sqlUpper), "SELECT") {
+	if !strings.HasPrefix(sqlUpperTrimmed, "SELECT") {
 		return false
 	}
 
 	// Check if it already has a LIMIT clause
-	if strings.Contains(sqlUpper, " LIMIT ") {
+	if limitClausePattern.MatchString(sql) {
+		return false
+	}
+
+	// SQL-standard FETCH pagination is already an explicit row limit.
+	if fetchClausePattern.MatchString(sql) {
+		return false
+	}
+
+	// KWDB FILL clauses must remain the final clause in the statement.
+	if strings.Contains(sqlUpper, "FILL(") {
 		return false
 	}
 
 	// Check if it's a special case like EXPLAIN or SHOW
-	if strings.HasPrefix(strings.TrimSpace(sqlUpper), "EXPLAIN") ||
-		strings.HasPrefix(strings.TrimSpace(sqlUpper), "SHOW") {
+	if strings.HasPrefix(sqlUpperTrimmed, "EXPLAIN") ||
+		strings.HasPrefix(sqlUpperTrimmed, "SHOW") {
 		return false
 	}
 
