@@ -3,7 +3,9 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -159,6 +161,29 @@ func TestExecuteQuery(t *testing.T) {
 	_, err = ExecuteQuery("INVALID SQL")
 	if err == nil {
 		t.Fatal("ExecuteQuery should fail with invalid SQL")
+	}
+}
+
+func TestNormalizeSQLValue_NonFiniteFloats(t *testing.T) {
+	row := map[string]interface{}{
+		"nan":     normalizeSQLValue(math.NaN()),
+		"pos_inf": normalizeSQLValue(math.Inf(1)),
+		"neg_inf": normalizeSQLValue(math.Inf(-1)),
+		"finite":  normalizeSQLValue(1.25),
+		"bytes":   normalizeSQLValue([]byte("ok")),
+	}
+
+	if row["nan"] != nil || row["pos_inf"] != nil || row["neg_inf"] != nil {
+		t.Fatalf("non-finite floats should be converted to nil, got %+v", row)
+	}
+	if row["finite"] != 1.25 {
+		t.Fatalf("finite float should be preserved, got %v", row["finite"])
+	}
+	if row["bytes"] != "ok" {
+		t.Fatalf("byte values should be converted to strings, got %v", row["bytes"])
+	}
+	if _, err := json.Marshal(row); err != nil {
+		t.Fatalf("normalized row should marshal as JSON: %v", err)
 	}
 }
 

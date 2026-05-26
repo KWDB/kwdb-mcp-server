@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -93,14 +94,7 @@ func GetTableColumnsWithContext(ctx context.Context, tableName string) ([]map[st
 			// 创建列信息映射
 			colInfo := make(map[string]interface{})
 			for i, col := range columns {
-				val := values[i]
-				// 处理不同数据类型
-				switch v := val.(type) {
-				case []byte:
-					colInfo[col] = string(v)
-				default:
-					colInfo[col] = v
-				}
+				colInfo[col] = normalizeSQLValue(values[i])
 			}
 
 			result = append(result, colInfo)
@@ -192,14 +186,7 @@ func ExecuteQueryWithContext(ctx context.Context, query string) ([]map[string]in
 			// 创建行映射
 			row := make(map[string]interface{})
 			for i, col := range columns {
-				val := values[i]
-				// 处理不同数据类型
-				switch v := val.(type) {
-				case []byte:
-					row[col] = string(v)
-				default:
-					row[col] = v
-				}
+				row[col] = normalizeSQLValue(values[i])
 			}
 			result = append(result, row)
 		}
@@ -291,14 +278,7 @@ func ExecuteQueryWithURI(ctx context.Context, connectionString, query string) ([
 			// 创建行映射
 			row := make(map[string]interface{})
 			for i, col := range columns {
-				val := values[i]
-				// 处理不同数据类型
-				switch v := val.(type) {
-				case []byte:
-					row[col] = string(v)
-				default:
-					row[col] = v
-				}
+				row[col] = normalizeSQLValue(values[i])
 			}
 			result = append(result, row)
 		}
@@ -311,6 +291,25 @@ func ExecuteQueryWithURI(ctx context.Context, connectionString, query string) ([
 	}
 
 	return result, nil
+}
+
+func normalizeSQLValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case []byte:
+		return string(v)
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil
+		}
+		return v
+	case float32:
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			return nil
+		}
+		return v
+	default:
+		return v
+	}
 }
 
 // ExecuteWriteQueryWithURI 使用指定数据库 URI 执行写操作。

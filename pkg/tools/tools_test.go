@@ -1,7 +1,14 @@
 package tools
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"os"
 	"testing"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 func TestResolveDBTarget_WithHeader(t *testing.T) {
@@ -99,5 +106,34 @@ func TestAddLimitToQuery(t *testing.T) {
 
 	if got != "SELECT * FROM test_table LIMIT 20;" {
 		t.Fatalf("addLimitToQuery(%q, 20) = %q", sql, got)
+	}
+}
+
+func TestReadQueryTool_NodeStatementStatisticsSerializes(t *testing.T) {
+	dbURI := os.Getenv("KWDB_MCP_TEST_DATABASE_URI")
+	if dbURI == "" {
+		t.Skip("KWDB_MCP_TEST_DATABASE_URI is not set")
+	}
+
+	s := mcpserver.NewMCPServer("test", "1.0", mcpserver.WithToolCapabilities(true))
+	RegisterTools(s)
+	tool := s.ListTools()["read-query"]
+
+	request := mcp.CallToolRequest{Header: http.Header{}}
+	request.Header.Set("X-Database-URI", dbURI)
+	request.Params.Name = "read-query"
+	request.Params.Arguments = map[string]interface{}{
+		"sql": "SELECT * FROM kwdb_internal.node_statement_statistics LIMIT 50",
+	}
+
+	result, err := tool.Handler(context.Background(), request)
+	if err != nil {
+		t.Fatalf("read-query should not return transport error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("read-query returned tool error: %+v", result.Content)
+	}
+	if _, err := json.Marshal(result.StructuredContent); err != nil {
+		t.Fatalf("structured content should marshal as JSON: %v", err)
 	}
 }
