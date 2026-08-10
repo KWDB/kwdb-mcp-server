@@ -13,8 +13,21 @@ import (
 )
 
 // Config controls tool registration defaults.
+//
+// DefaultAdminBaseURL seeds the `--admin-base-url` tier of the per-request
+// three-level fallback (X-Admin-Base-URL header → flag → DB URL derivation).
+// Per-request X-Admin-Base-URL headers still override this default; the
+// field exists so single-DB deployments can pin an admin port that does not
+// match the DB URL port (e.g. when admin is mapped through a different host
+// port via docker -p).
+//
+// DefaultDatabaseURI seeds the same single-DB fallback for the database DSN.
+// Per-request X-Database-URI headers override it. Admin tools need the DSN
+// credentials to sign Basic Auth against a TLS admin endpoint, so an empty
+// fallback path would fail with "TLS admin endpoint requires credentials".
 type Config struct {
 	DefaultAdminBaseURL string
+	DefaultDatabaseURI  string
 }
 
 // resolveDBTarget 决定本次请求使用哪个数据库：X-Database-URI 优先，无 header 时回退默认池，两者都无则报错。
@@ -35,6 +48,12 @@ func RegisterTools(s *server.MCPServer) {
 }
 
 // RegisterToolsWithConfig registers all tools with the MCP server using default tool config.
+//
+// Tool registration order is part of the public contract: read-query,
+// write-query, query-metrics, query-slow-sql. The previously shipped
+// query-metrics-history tool has been removed; admin URL defaults are now
+// derived per-request from the database DSN instead of being threaded
+// through this config.
 func RegisterToolsWithConfig(s *server.MCPServer, config Config) {
 	// Register read query tool
 	registerReadQueryTool(s)
@@ -42,8 +61,12 @@ func RegisterToolsWithConfig(s *server.MCPServer, config Config) {
 	// Register write query tool
 	registerWriteQueryTool(s)
 
-	// Register metrics history tool
-	registerQueryMetricsHistoryTool(s, config)
+	// Register metrics inspection tool — only consumer of the admin base URL
+	registerQueryMetricsTool(s, config.DefaultAdminBaseURL, config.DefaultDatabaseURI)
+
+	// Register slow SQL tool — SQL-only path, still needs DSN fallback for
+	// MCP clients that inject an empty-credentials X-Database-URI stub.
+	registerQuerySlowSqlTool(s, config.DefaultDatabaseURI)
 }
 
 // validOutputSchema is a minimal JSON Schema so clients (e.g. Cursor) that validate

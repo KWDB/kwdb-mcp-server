@@ -1,2 +1,6 @@
 bin/
 memory-bank
+.memsearch/*
+
+# OpenSpec / Comet 运行时缓存(skill 快照、轨迹、状态事件)
+openspec/changes/*/.comet/

@@ -22,6 +22,7 @@ The core process of the KWDB MCP Server consists of the following components:
 - **Read Operations**: execute `SELECT`, `SHOW`, `EXPLAIN`, and other read-only queries.
 - **Write Operations**: execute `INSERT`, `UPDATE`, `DELETE`, and `CREATE`, `DROP`, `ALTER` DDL operations.
 - **Database Information**: get information about the database, including tables and their schemas.
+- **Inspection Tools**: `query-metrics` (fixed catalog of 32 runtime metrics against the admin `/restapi/ts/query` endpoint) and `query-slow-sql` (top-N slow SQL statements via a SELECT against `kwdb_internal.node_statement_statistics`) — both derive credentials from the existing DB URL, supporting both TLS and insecure KaiwuDB deployments.
 - **Syntax Guide**: access a comprehensive syntax guide for KWDB through Prompts.
 - **Standard API Response**: provide consistent error handling mechanisms.
     - **Tools Error**: error information is wrapped in result objects with `isError` flag.
@@ -123,27 +124,83 @@ ALTER TABLE products ADD COLUMN description TEXT;
 DROP TABLE products;
 ```
 
-#### query-metrics-history
+#### query-metrics
 
-The KWDB MCP Server can query historical runtime metrics through the database admin `/ts/query` API. This tool accepts millisecond timestamps, converts string aggregations to the backend enum values, and normalizes timestamps in the response.
+The KWDB MCP Server can query historical runtime metrics through the database admin `/ts/query` API. The tool accepts a fixed catalog of 32 inspection metrics (QPS, CPU, memory, latency, storage, cluster, network) defined in `docs/design-tls-inspection-tools.md`. Each call requires `metric_names`, `start_ms`, `end_ms`, and `sample_ms`. Basic Auth credentials are derived from the connection string's `user:password`.
+
+The 32-metric catalog spans these categories (all `derivative: "none"`):
+
+| Category   | Examples |
+|------------|---------|
+| Basic      | `cr.node.liveness.livenodes`, `cr.node.sys.uptime` |
+| System     | `cr.node.sys.cpu.user.percent`, `cr.store.capacity`, `cr.node.sys.rss` |
+| SQL workload | `cr.node.sql.query.count`, `cr.node.exec.latency-p99` |
+| Storage    | `cr.store.totalbytes`, `cr.store.livebytes` |
+| Cluster    | `cr.store.replicas`, `cr.store.ranges.unavailable` |
+| Network    | `cr.node.clock-offset.meannanos` |
 
 Examples:
 
 ```json
 {
+  "metric_names": ["cr.node.sql.query.count", "cr.node.sys.cpu.user.percent"],
   "start_ms": 1775035140000,
   "end_ms": 1775035740000,
-  "sample_ms": 60000,
-  "queries": [
-    {
-      "name": "cr.node.sql.query.count",
-      "downsampler": "avg",
-      "source_aggregator": "sum",
-      "derivative": "rate"
-    }
-  ]
+  "sample_ms": 60000
 }
 ```
+
+Successful response (the upstream `/ts/query` returns `code: 0` on success):
+
+```json
+{
+  "status": "success",
+  "type": "metrics_inspection",
+  "data": {
+    "code": 0,
+    "desc": ""
+  },
+  "error": null
+}
+```
+
+#### query-slow-sql
+
+The KWDB MCP Server can query slow SQL statements by running a SELECT against the cluster-side system table `kwdb_internal.node_statement_statistics`. The tool accepts optional `limit` (default 10), `min_latency_ms` (default 0), and `sort_by` (default `service_lat`; supports `run_lat`, `plan_lat`, `count`). Results include query text, four latency fields (in milliseconds), and execution count.
+
+Filtering always runs against `service_latency_ms`, regardless of the chosen `sort_by`. The default call returns the top 10 statements sorted by mean service latency.
+
+Examples:
+
+```json
+{
+  "limit": 10,
+  "min_latency_ms": 100,
+  "sort_by": "service_lat"
+}
+```
+
+Successful response (truncated for brevity):
+
+```json
+{
+  "data": [
+    {
+      "id": "1",
+      "fingerprint": "1",
+      "query": "SELECT count(_), max(\"timestamp\") FROM [DELETE FROM system.rangelog WHERE ...]",
+      "service_latency_ms": 3.805022,
+      "run_latency_ms": 0.649384,
+      "plan_latency_ms": 1.041746,
+      "count": 1
+    }
+  ],
+  "status": "success",
+  "type": "slow_sql_inspection"
+}
+```
+
+Both `query-metrics` and `query-slow-sql` reuse the same `X-Database-URI` header (or default pool) and derive their Basic Auth from the saved credentials; the admin endpoint URL is auto-derived from the DB URL's host. TLS endpoints skip certificate verification to match the KaiwuDB self-signed convention.
 
 ### MCP Prompts
 
@@ -274,7 +331,7 @@ The KWDB MCP Server supports three transport modes:
 
 - **Single-DB (compatibility)**: Start the server with an optional PostgreSQL connection string as the first argument (or via `CONNECTION_STRING` in the Makefile). The server initializes a default connection pool. Tools `read-query` and `write-query` may be called **without** the `X-Database-URI` header; they use this default pool.
 - **Stateless multi-tenant**: Start the server **without** a connection string (e.g. `./bin/kwdb-mcp-server` or `./bin/kwdb-mcp-server -t http -p 8080`). The server does not open any database until a tool is invoked. Every `read-query` and `write-query` call **must** send the request header **`X-Database-URI`** with a full PostgreSQL connection string; otherwise the tool returns an error: `missing X-Database-URI header`.
-- **Admin endpoint default**: Historical metrics queries use the database admin HTTP endpoint. You can set a default via `--admin-base-url`, or send `X-Admin-Base-URL` per tool call. If neither is provided, `query-metrics-history` returns `missing X-Admin-Base-URL header`.
+- **Admin endpoint auto-derived**: Inspection tools (`query-metrics`, `query-slow-sql`) derive the admin endpoint URL from the connection string's host (default port 8080) and derive Basic Auth credentials from the same connection string. No separate admin configuration is needed; the connection string's `sslmode` and cert paths determine whether the admin endpoint is reached over `http` or `https`. To override the derived admin URL on a per-request basis, send `X-Admin-Base-URL`.
 
 ---
 
@@ -286,7 +343,7 @@ The KWDB MCP Server supports three transport modes:
     ./bin/kwdb-mcp-server "postgresql://<username>:<password>@<hostname>:<port>/<database_name>?sslmode=disable"
     ```
 
-- Or run without a connection string for stateless mode; then each `read-query` / `write-query` call must send the `X-Database-URI` header. Historical metrics calls must also provide `X-Admin-Base-URL` unless you started the server with `--admin-base-url`.
+- Or run without a connection string for stateless mode; then each `read-query` / `write-query` call must send the `X-Database-URI` header. Inspection tools (`query-metrics`, `query-slow-sql`) automatically derive the admin endpoint URL and Basic Auth from this same connection string; send `X-Admin-Base-URL` to override the derived URL.
 
     ```shell
     ./bin/kwdb-mcp-server
@@ -318,7 +375,7 @@ Parameters:
     ```
 
 - The HTTP service listens on `0.0.0.0:<port>` by default, and the MCP endpoint is `http://<host>:<port>/mcp`. When started without a connection string (stateless mode), clients must send the `X-Database-URI` request header with each `read-query` / `write-query` call.
-- For `query-metrics-history`, clients must send `X-Admin-Base-URL` on each tool call unless the server was started with `--admin-base-url`.
+- The inspection tools (`query-metrics`, `query-slow-sql`) derive Basic Auth and the admin endpoint URL from the `X-Database-URI` connection string; send `X-Admin-Base-URL` to override the derived URL.
 
 - **HTTPS (TLS)** is optional: pass both `--tls-cert` and `--tls-key` with PEM file paths. The server then listens with TLS; the MCP endpoint is `https://<host>:<port>/mcp`. If only one of the two flags is set, the process exits with an error. TLS is implemented via [mcp-go](https://github.com/mark3labs/mcp-go) `WithTLSCert` (requires mcp-go v0.39+).
 
@@ -333,7 +390,6 @@ Parameters:
   - `sse`: SSE mode (deprecated)
   - `http`: HTTP mode (recommended)
 - `-p` or `--port`: Listening port for KWDB MCP Server, default is `8080`.
-- `--admin-base-url`: Optional. Default admin HTTP base URL of the target KWDB instance, used by `query-metrics-history`.
 - `--tls-cert` / `--tls-key`: Optional. PEM certificate and private key for HTTP mode HTTPS. Both must be set together; only applies when `-t http`.
 - `username`: Username for connecting to the KWDB database.
 - `password`: Password for authentication.
