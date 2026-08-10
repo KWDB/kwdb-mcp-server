@@ -24,9 +24,20 @@ const (
 )
 
 // ServerConfig controls database and admin endpoint defaults used by the server.
+//
+// Admin endpoint URLs follow a three-level per-request fallback inside the
+// admin tools (X-Admin-Base-URL header → --admin-base-url flag → DB URL
+// derivation). DefaultAdminBaseURL seeds the flag tier for single-DB mode.
+//
+// DefaultDatabaseURI mirrors ConnectionString into the tool-registration
+// config so per-request X-Database-URI headers can fall back to it when the
+// header is omitted (single-DB mode); without this, admin tools would not
+// have access to the DSN credentials needed to sign Basic Auth against a
+// TLS admin endpoint.
 type ServerConfig struct {
 	ConnectionString    string
 	DefaultAdminBaseURL string
+	DefaultDatabaseURI  string
 }
 
 // CreateServer creates MCP server.
@@ -68,6 +79,7 @@ func CreateServerWithConfig(config ServerConfig) (*server.MCPServer, error) {
 	// Register tools
 	tools.RegisterToolsWithConfig(s, tools.Config{
 		DefaultAdminBaseURL: config.DefaultAdminBaseURL,
+		DefaultDatabaseURI:  config.DefaultDatabaseURI,
 	})
 
 	log.Println("KWDB (KaiwuDB) MCP Server initialized successfully (database connection will be established on demand)")

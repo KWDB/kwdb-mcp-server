@@ -27,7 +27,7 @@ func main() {
 	flag.StringVar(&port, "port", "8080", "Port to listen on for HTTP/SSE mode")
 	flag.StringVar(&tlsCertFile, "tls-cert", "", "TLS certificate file for HTTP mode (requires --tls-key)")
 	flag.StringVar(&tlsKeyFile, "tls-key", "", "TLS private key file for HTTP mode (requires --tls-cert)")
-	flag.StringVar(&adminBaseURL, "admin-base-url", "", "Default KWDB admin HTTP base URL for metrics history queries")
+	flag.StringVar(&adminBaseURL, "admin-base-url", "", "Default KWDB admin HTTP base URL for query-metrics (e.g. http://10.180.153.130:8081). Lower priority than per-request X-Admin-Base-URL header; higher priority than DB URL derivation.")
 	flag.BoolVar(&showVersion, "v", false, "Show version information")
 	flag.BoolVar(&showVersion, "version", false, "Show version information")
 
@@ -58,6 +58,7 @@ func main() {
 	s, err := server.CreateServerWithConfig(server.ServerConfig{
 		ConnectionString:    connectionString,
 		DefaultAdminBaseURL: adminBaseURL,
+		DefaultDatabaseURI:  connectionString,
 	})
 	if err != nil {
 		transport = strings.ToLower(transport)
